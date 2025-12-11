@@ -49,6 +49,11 @@ export default function Chart({ data }) {
             topColor: 'rgba(34, 197, 94, 0.4)',
             bottomColor: 'rgba(34, 197, 94, 0.0)',
             lineWidth: 2,
+            priceFormat: {
+                type: 'price',
+                precision: 6,
+                minMove: 0.000001,
+            },
         });
 
         seriesRef.current = newSeries;
