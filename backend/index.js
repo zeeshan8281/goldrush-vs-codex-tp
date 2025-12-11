@@ -224,7 +224,7 @@ const client = createClient({
 function startStream() {
     console.log("🔗 Connecting to GoldRush Stream...");
     // 2. Define the GraphQL Subscription Query
-    // Using 'updatePairs' stream for real-time tick updates
+    // Using 'updatePairs' stream with full metadata
     const SUBSCRIPTION_QUERY = `
         subscription {
             updatePairs(
@@ -240,6 +240,30 @@ function startStream() {
                 volume_usd
                 market_cap
                 liquidity
+                base_token {
+                    contract_name
+                    contract_address
+                    contract_decimals
+                    contract_ticker_symbol
+                }
+                quote_token {
+                    contract_name
+                    contract_address
+                    contract_decimals
+                    contract_ticker_symbol
+                }
+                price_deltas {
+                    last_5m
+                    last_1hr
+                    last_6hr
+                    last_24hr
+                }
+                swap_counts {
+                    last_5m
+                    last_1hr
+                    last_6hr
+                    last_24hr
+                }
             }
         }
     `;
@@ -253,7 +277,8 @@ function startStream() {
             next: (data) => {
                 const event = data?.data?.updatePairs?.[0];
                 if (event) {
-                    processNewPrice(event.quote_rate || event.quote_rate_usd, event.timestamp);
+                    // Use USD price if available, otherwise raw quote rate
+                    processNewPrice(event.quote_rate_usd || event.quote_rate, event.timestamp);
                 }
             },
             error: (err) => console.error('❌ Stream Error:', err),
