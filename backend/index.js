@@ -96,7 +96,7 @@ function startCodexStream() {
 
     const CODEX_SUBSCRIPTION = `
         subscription OnBarsUpdated {
-            onTokenBarsUpdated(tokenId: "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c:56") {
+            onTokenBarsUpdated(tokenId: "0x9c087Eb773291e50CF6c6a90ef0F4500e349B903:8453") {
                 aggregates {
                     r1 {
                         usd {
@@ -227,9 +227,9 @@ function startStream() {
     // Using 'ohlcvCandlesForToken' per user documentation (Resolves Token -> Pair automatically)
     const SUBSCRIPTION_QUERY = `
         subscription {
-            ohlcvCandlesForToken(
+            ohlcvCandlesForPair(
                 chain_name: BASE_MAINNET
-                token_addresses: ["0x4B6104755AfB5Da4581B81C552DA3A25608c73B8"]
+                pair_addresses: ["0x9c087Eb773291e50CF6c6a90ef0F4500e349B903"]
                 interval: ONE_MINUTE
                 timeframe: ONE_HOUR
             ) {
@@ -262,7 +262,7 @@ function startStream() {
         },
         {
             next: (data) => {
-                const candle = data?.data?.ohlcvCandlesForToken?.[0];
+                const candle = data?.data?.ohlcvCandlesForPair?.[0];
                 if (candle) {
                     // Use CLOSE price (DEX spot) for volatility, not quote_rate_usd (aggregated)
                     const livePrice = candle.close || candle.quote_rate_usd;
