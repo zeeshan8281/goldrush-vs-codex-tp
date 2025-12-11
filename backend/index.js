@@ -272,8 +272,8 @@ function startStream() {
             next: (data) => {
                 const candle = data?.data?.ohlcvCandlesForToken?.[0];
                 if (candle) {
-                    // Use Close price (DEX Spot) over Quote Rate (Aggregated) for volatility matching
-                    processNewPrice(candle.close || candle.quote_rate_usd, candle.timestamp);
+                    // Use USD Quote Rate as the live price
+                    processNewPrice(candle.quote_rate_usd || candle.close, candle.timestamp);
                 }
             },
             error: (err) => console.error('❌ Stream Error:', err),

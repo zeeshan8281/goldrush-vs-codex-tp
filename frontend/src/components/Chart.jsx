@@ -6,10 +6,7 @@ export default function Chart({ data }) {
     const chartRef = useRef(null);
     const seriesRef = useRef(null);
 
-    // Track the last timestamp we successfully plotted to handle 'update' vs 'append'
-    const lastTimeRef = useRef(0);
-
-    // 1. Initialize Chart (Once)
+    // Initialize Chart once
     useEffect(() => {
         if (!chartContainerRef.current) return;
 
@@ -28,19 +25,9 @@ export default function Chart({ data }) {
                 timeVisible: true,
                 secondsVisible: true,
                 borderColor: 'rgba(255, 255, 255, 0.1)',
-                rightOffset: 5,
             },
             rightPriceScale: {
                 borderColor: 'rgba(255, 255, 255, 0.1)',
-                scaleMargins: {
-                    top: 0.05,
-                    bottom: 0.05,
-                },
-                autoScale: true,
-            },
-            crosshair: {
-                vertLine: { labelBackgroundColor: '#22c55e' },
-                horzLine: { labelBackgroundColor: '#22c55e' },
             }
         });
 
@@ -49,17 +36,12 @@ export default function Chart({ data }) {
             topColor: 'rgba(34, 197, 94, 0.4)',
             bottomColor: 'rgba(34, 197, 94, 0.0)',
             lineWidth: 2,
-            priceFormat: {
-                type: 'price',
-                precision: 6,
-                minMove: 0.000001,
-            },
         });
 
         seriesRef.current = newSeries;
         chartRef.current = chart;
 
-        // Resize Observer (Keep this as it solved layout issues)
+        // Resize Observer
         const resizeObserver = new ResizeObserver(entries => {
             if (entries.length === 0 || !entries[0].contentRect) return;
             const { width, height } = entries[0].contentRect;
@@ -73,51 +55,17 @@ export default function Chart({ data }) {
         };
     }, []);
 
-    // 2. Handle Data Updates
+    // Update data
     useEffect(() => {
-        if (!seriesRef.current || !data) return;
-
-        try {
-            // Case A: Initial History (Array)
-            if (Array.isArray(data)) {
-                const formattedData = data.map(d => ({
-                    time: Math.floor(d.timestamp / 1000),
-                    value: d.price
-                })).sort((a, b) => a.time - b.time);
-
-                // Deduplicate and ensure ascending time
-                const uniqueData = [];
-                let maxTime = 0;
-                formattedData.forEach(pt => {
-                    if (pt.time > maxTime) {
-                        uniqueData.push(pt);
-                        maxTime = pt.time;
-                    }
-                });
-
-                seriesRef.current.setData(uniqueData);
-                if (chartRef.current) chartRef.current.timeScale().fitContent();
-                lastTimeRef.current = maxTime;
-            }
-            // Case B: Real-time Update (Object)
-            else if (data.price) {
-                let timeInSeconds = Math.floor(data.timestamp / 1000);
-
-                // Prevent going backward
-                if (timeInSeconds < lastTimeRef.current) {
-                    timeInSeconds = lastTimeRef.current; // unexpected, but safe
-                }
-
-                // Allow "update last bar" if same second
+        if (seriesRef.current && data && data.price) {
+            try {
                 seriesRef.current.update({
-                    time: timeInSeconds,
+                    time: Math.floor(data.timestamp / 1000),
                     value: data.price
                 });
-
-                lastTimeRef.current = timeInSeconds;
+            } catch (e) {
+                // Ignore duplicate time errors
             }
-        } catch (e) {
-            console.warn("Chart Data Error", e);
         }
     }, [data]);
 
