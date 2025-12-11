@@ -8,7 +8,7 @@ require('dotenv').config();
 
 // --- CONFIGURATION ---
 const PORT = 3002;
-const SYMBOL = 'VIRTUAL-USD';
+const SYMBOL = '0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b'; // VIRTUAL Token on Base
 // Using CODEX API Key for the REST fetch
 // Using CODEX API Key for the REST fetch
 const WS_STREAM_URL = 'wss://gr-staging-v2.streaming.covalenthq.com/graphql';
@@ -230,35 +230,16 @@ function startStream() {
             ohlcvCandlesForToken(
                 chain_name: BASE_MAINNET
                 token_addresses: ["${SYMBOL}"]
-                interval: ONE_SECOND
+                interval: ONE_MINUTE
                 timeframe: ONE_HOUR
-                limit: 1000
             ) {
-                chain_name
-                pair_address
-                interval
-                timeframe
                 timestamp
                 open
                 high
                 low
                 close
-                volume
                 volume_usd
-                quote_rate
                 quote_rate_usd
-                base_token {
-                    contract_name
-                    contract_address
-                    contract_decimals
-                    contract_ticker_symbol
-                }
-                quote_token {
-                    contract_name
-                    contract_address
-                    contract_decimals
-                    contract_ticker_symbol
-                }
             }
         }
     `;
@@ -272,12 +253,21 @@ function startStream() {
             next: (data) => {
                 const candle = data?.data?.ohlcvCandlesForToken?.[0];
                 if (candle) {
-                    // Use USD Quote Rate as the live price
-                    processNewPrice(candle.quote_rate_usd || candle.close, candle.timestamp);
+                    // Use CLOSE price (DEX spot) for volatility, not quote_rate_usd (aggregated)
+                    const livePrice = candle.close || candle.quote_rate_usd;
+                    console.log(`📊 CANDLE: close=${candle.close}, quote_rate=${candle.quote_rate_usd}, using=${livePrice}`);
+                    processNewPrice(livePrice, candle.timestamp);
                 }
             },
-            error: (err) => console.error('❌ Stream Error:', err),
-            complete: () => console.log('Stream Closed'),
+            error: (err) => {
+                console.error('❌ Stream Error:', err);
+                console.log('🔄 Reconnecting in 3 seconds...');
+                setTimeout(startStream, 3000);
+            },
+            complete: () => {
+                console.log('Stream Closed - Reconnecting in 3 seconds...');
+                setTimeout(startStream, 3000);
+            },
         }
     );
 }
