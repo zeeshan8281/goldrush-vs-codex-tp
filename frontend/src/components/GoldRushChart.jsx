@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { createChart, ColorType } from 'lightweight-charts';
 
-export default function Chart({ data }) {
+export default function GoldRushChart({ data }) {
     const chartContainerRef = useRef();
     const seriesRef = useRef(null);
     const chartRef = useRef(null);
@@ -40,13 +40,11 @@ export default function Chart({ data }) {
         seriesRef.current = newSeries;
         chartRef.current = chart;
 
-        // Resize Observer to handle flex layout changes
         const resizeObserver = new ResizeObserver(entries => {
             if (entries.length === 0 || !entries[0].contentRect) return;
             const { width, height } = entries[0].contentRect;
             chart.applyOptions({ width, height });
         });
-
         resizeObserver.observe(chartContainerRef.current);
 
         return () => {
@@ -56,17 +54,14 @@ export default function Chart({ data }) {
     }, []);
 
     useEffect(() => {
-        if (seriesRef.current && data) {
-            console.log('Chart data:', data);
+        if (seriesRef.current && data && data.price && data.timestamp) {
             try {
-                if (data.price && data.timestamp) {
-                    seriesRef.current.update({
-                        time: Math.floor(data.timestamp / 1000),
-                        value: data.price
-                    });
-                }
+                seriesRef.current.update({
+                    time: Math.floor(data.timestamp / 1000),
+                    value: data.price
+                });
             } catch (e) {
-                // Ignore duplicate time errors
+                // Ignore errors
             }
         }
     }, [data]);
