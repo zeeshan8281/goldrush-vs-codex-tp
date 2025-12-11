@@ -1,6 +1,5 @@
 import React from 'react';
-import GoldRushChart from './GoldRushChart';
-import CodexChart from './CodexChart';
+import Chart from './Chart';
 import TradeList from './TradeList';
 import { Zap, Database } from 'lucide-react';
 
@@ -42,7 +41,7 @@ export default function Dashboard({ state }) {
 
                     {/* Chart Canvas Container - Absolute to fill parent exactly */}
                     <div className="absolute inset-0 top-0 w-full h-full z-10">
-                        <GoldRushChart data={goldrushTick} />
+                        <Chart data={goldrushTick} color="#22c55e" />
                     </div>
                 </div>
 
@@ -79,7 +78,7 @@ export default function Dashboard({ state }) {
 
                     {/* Chart Canvas Container */}
                     <div className="absolute inset-0 top-0 w-full h-full z-10">
-                        <CodexChart data={codexTick} />
+                        <Chart data={codexTick} color="#6366f1" />
                     </div>
                 </div>
 
