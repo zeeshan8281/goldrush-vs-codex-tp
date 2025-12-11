@@ -221,32 +221,42 @@ const client = createClient({
     shouldRetry: () => true,
 });
 
-const QUERY = `
-  subscription {
-    ohlcvCandlesForToken(
-      chain_name: BASE_MAINNET
-      token_addresses: ["0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b"]
-      interval: ONE_SECOND
-      timeframe: ONE_HOUR
-    ) {
-      timestamp
-      close
-    }
-  }
-`;
-
 function startStream() {
     console.log("🔗 Connecting to GoldRush Stream...");
-    client.subscribe(
-        { query: QUERY },
+    // 2. Define the GraphQL Subscription Query
+    // Using 'updatePairs' stream for real-time tick updates
+    const SUBSCRIPTION_QUERY = `
+        subscription {
+            updatePairs(
+                chain_name: BASE_MAINNET
+                pair_addresses: ["${SYMBOL}"]
+            ) {
+                chain_name
+                pair_address
+                timestamp
+                quote_rate
+                quote_rate_usd
+                volume
+                volume_usd
+                market_cap
+                liquidity
+            }
+        }
+    `;
+
+    // 3. Subscribe
+    const unsubscribe = client.subscribe(
+        {
+            query: SUBSCRIPTION_QUERY,
+        },
         {
             next: (data) => {
-                if (data.data?.ohlcvCandlesForToken?.[0]) {
-                    const candle = data.data.ohlcvCandlesForToken[0];
-                    processNewPrice(candle.close, candle.timestamp);
+                const event = data?.data?.updatePairs?.[0];
+                if (event) {
+                    processNewPrice(event.quote_rate || event.quote_rate_usd, event.timestamp);
                 }
             },
-            error: (err) => console.error('Stream Error:', err),
+            error: (err) => console.error('❌ Stream Error:', err),
             complete: () => console.log('Stream Closed'),
         }
     );
