@@ -3,10 +3,9 @@ import { createChart, ColorType } from 'lightweight-charts';
 
 export default function Chart({ data }) {
     const chartContainerRef = useRef();
-    const chartRef = useRef(null);
     const seriesRef = useRef(null);
+    const chartRef = useRef(null);
 
-    // Initialize Chart once
     useEffect(() => {
         if (!chartContainerRef.current) return;
 
@@ -41,12 +40,13 @@ export default function Chart({ data }) {
         seriesRef.current = newSeries;
         chartRef.current = chart;
 
-        // Resize Observer
+        // Resize Observer to handle flex layout changes
         const resizeObserver = new ResizeObserver(entries => {
             if (entries.length === 0 || !entries[0].contentRect) return;
             const { width, height } = entries[0].contentRect;
             chart.applyOptions({ width, height });
         });
+
         resizeObserver.observe(chartContainerRef.current);
 
         return () => {
@@ -55,9 +55,8 @@ export default function Chart({ data }) {
         };
     }, []);
 
-    // Update data
     useEffect(() => {
-        if (seriesRef.current && data && data.price) {
+        if (seriesRef.current && data) {
             try {
                 seriesRef.current.update({
                     time: Math.floor(data.timestamp / 1000),

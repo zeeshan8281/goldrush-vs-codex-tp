@@ -8,7 +8,7 @@ require('dotenv').config();
 
 // --- CONFIGURATION ---
 const PORT = 3002;
-const SYMBOL = '0x4B6104755AfB5Da4581B81C552DA3A25608c73B8'; // Token on Base
+const SYMBOL = 'VIRTUAL-USD';
 // Using CODEX API Key for the REST fetch
 // Using CODEX API Key for the REST fetch
 const WS_STREAM_URL = 'wss://gr-staging-v2.streaming.covalenthq.com/graphql';
@@ -81,75 +81,75 @@ async function processNewPrice(price, candleTimestamp) {
     checkArbitrageAndBroadcast();
 }
 
-// --- CODEX WEBSOCKET CLIENT ---
-const codexClient = createClient({
-    url: 'wss://graph.codex.io/graphql',
-    webSocketImpl: WebSocket,
-    connectionParams: {
-        Authorization: process.env.CODEX_API_KEY,
-    },
-    shouldRetry: () => true,
-});
+// --- CODEX POLLING LOOP (Independent Feed) ---
+async function startCodexPolling() {
+    console.log("🐢 Starting Codex Polling Loop...");
+    setInterval(async () => {
+        await fetchCodexPrice();
+    }, 2000); // Poll every 2 seconds
+}
 
-function startCodexStream() {
-    console.log("🐢 Connecting to Codex Stream...");
+async function fetchCodexPrice() {
+    const startTime = Date.now();
+    try {
+        const now = Math.floor(Date.now() / 1000);
+        const lookback = now - 900;
 
-    const CODEX_SUBSCRIPTION = `
-        subscription OnBarsUpdated {
-            onTokenBarsUpdated(tokenId: "0x4B6104755AfB5Da4581B81C552DA3A25608c73B8:8453") {
-                aggregates {
-                    r1 {
-                        usd {
-                            o
-                            h
-                            l
-                            c
-                            t
-                            volume
-                        }
-                    }
+        const query = `
+            query {
+                getBars(
+                    symbol: "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b:8453"
+                    from: ${lookback}
+                    to: ${now}
+                    resolution: "1"
+                ) {
+                    c
                 }
             }
-        }
-    `;
+        `;
 
-    codexClient.subscribe(
-        { query: CODEX_SUBSCRIPTION },
-        {
-            next: (data) => {
-                const bar = data?.data?.onTokenBarsUpdated?.aggregates?.r1?.usd;
-                if (bar && bar.c) {
-                    const endTime = Date.now();
-                    const codexPrice = bar.c;
+        // console.log("🐢 Polling Codex...");
+        const response = await axios.post(
+            'https://graph.codex.io/graphql',
+            { query },
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': process.env.CODEX_API_KEY
+                },
+                timeout: 5000
+            }
+        );
 
-                    console.log(`🐢 CODEX [STREAM]: $${codexPrice}`);
+        const endTime = Date.now();
+        const networkLatency = endTime - startTime;
+        const data = response.data?.data?.getBars;
 
-                    pairs[SYMBOL].slowPrice = codexPrice;
+        if (data && data.c && data.c.length > 0) {
+            const codexPrice = data.c[data.c.length - 1];
 
-                    broadcast({
-                        type: 'SLOW_TICK',
-                        data: {
-                            pair: SYMBOL,
-                            price: codexPrice,
-                            timestamp: endTime,
-                            latency: 'Stream'
-                        }
-                    });
+            // Only broadcast/log if price changed or it's a heartbeat
+            // For this demo, let's broadcast every poll to show it's alive
+            // console.log(`🐢 CODEX: $${codexPrice}`);
 
-                    checkArbitrageAndBroadcast();
+            pairs[SYMBOL].slowPrice = codexPrice;
+
+            broadcast({
+                type: 'SLOW_TICK',
+                data: {
+                    pair: SYMBOL,
+                    price: codexPrice,
+                    timestamp: endTime,
+                    latency: networkLatency
                 }
-            },
-            error: (err) => {
-                console.error('❌ Codex Stream Error:', err);
-                console.log('🔄 Reconnecting Codex in 3 seconds...');
-                setTimeout(startCodexStream, 3000);
-            },
-            complete: () => {
-                console.log('Codex Stream Closed - Reconnecting in 3 seconds...');
-                setTimeout(startCodexStream, 3000);
-            },
+            });
+
+            checkArbitrageAndBroadcast();
         }
-    );
+
+    } catch (err) {
+        // console.error("🐢 Poll Error:", err.message);
+    }
 }
 
 
@@ -223,8 +223,6 @@ const client = createClient({
 
 function startStream() {
     console.log("🔗 Connecting to GoldRush Stream...");
-    // 2. Define the GraphQL Subscription Query
-    // Using 'ohlcvCandlesForToken' per user documentation (Resolves Token -> Pair automatically)
     const SUBSCRIPTION_QUERY = `
         subscription {
             ohlcvCandlesForToken(
@@ -255,30 +253,17 @@ function startStream() {
         }
     `;
 
-    // 3. Subscribe
-    const unsubscribe = client.subscribe(
-        {
-            query: SUBSCRIPTION_QUERY,
-        },
+    client.subscribe(
+        { query: SUBSCRIPTION_QUERY },
         {
             next: (data) => {
                 const candle = data?.data?.ohlcvCandlesForToken?.[0];
                 if (candle) {
-                    // Use CLOSE price (DEX spot) for volatility, not quote_rate_usd (aggregated)
-                    const livePrice = candle.close || candle.quote_rate_usd;
-                    console.log(`📊 CANDLE: close=${candle.close}, quote_rate=${candle.quote_rate_usd}, using=${livePrice}`);
-                    processNewPrice(livePrice, candle.timestamp);
+                    processNewPrice(candle.close || candle.quote_rate_usd, candle.timestamp);
                 }
             },
-            error: (err) => {
-                console.error('❌ Stream Error:', err);
-                console.log('🔄 Reconnecting in 3 seconds...');
-                setTimeout(startStream, 3000);
-            },
-            complete: () => {
-                console.log('Stream Closed - Reconnecting in 3 seconds...');
-                setTimeout(startStream, 3000);
-            },
+            error: (err) => console.error('❌ Stream Error:', err),
+            complete: () => console.log('Stream Closed'),
         }
     );
 }
@@ -328,7 +313,7 @@ async function init() {
     }
 
     startStream();
-    startCodexStream();
+    startCodexPolling();
 
     server.listen(PORT, () => {
         console.log(`✅ Backend listening on http://localhost:${PORT}`);
