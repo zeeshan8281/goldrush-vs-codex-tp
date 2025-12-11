@@ -16,7 +16,7 @@ export default function Dashboard({ state }) {
     return (
         <div className="grid grid-cols-2 gap-3 h-[calc(100vh-140px)]">
             {/* LEFT COLUMN: GOLDRUSH (FAST) */}
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 h-full">
                 <div className="glass-card flex-1 rounded-xl p-4 relative overflow-hidden border-2 border-primary/20 shadow-[0_0_50px_rgba(74,222,128,0.1)]">
                     <div className="absolute top-4 left-4 z-10 flex flex-col gap-1">
                         <div className="flex items-center gap-2">
@@ -37,13 +37,13 @@ export default function Dashboard({ state }) {
                     <Chart data={goldrushTick} />
                 </div>
 
-                <div className="h-2/5 glass-card rounded-xl p-0 overflow-hidden flex flex-col border border-primary/10">
+                <div className="h-[40%] min-h-[300px] glass-card rounded-xl p-0 overflow-hidden flex flex-col border border-primary/10">
                     <TradeList trades={state.goldrush.trades} mode="fast" />
                 </div>
             </div>
 
             {/* RIGHT COLUMN: CODEX (SLOW) */}
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 h-full">
                 <div className="glass-card flex-1 rounded-xl p-4 relative overflow-hidden border-2 border-white/5 opacity-80">
                     <div className="absolute top-4 left-4 z-10 flex flex-col gap-1">
                         <div className="flex items-center gap-2">
@@ -64,7 +64,7 @@ export default function Dashboard({ state }) {
                     <Chart data={codexTick} />
                 </div>
 
-                <div className="h-2/5 glass-card rounded-xl p-0 overflow-hidden flex flex-col border border-white/5">
+                <div className="h-[40%] min-h-[300px] glass-card rounded-xl p-0 overflow-hidden flex flex-col border border-white/5">
                     <TradeList trades={state.codex.trades} mode="slow" />
                 </div>
             </div>
