@@ -257,8 +257,11 @@ function startStream() {
         { query: SUBSCRIPTION_QUERY },
         {
             next: (data) => {
-                const candle = data?.data?.ohlcvCandlesForToken?.[0];
-                if (candle) {
+                const candles = data?.data?.ohlcvCandlesForToken;
+                if (candles && candles.length > 0) {
+                    // Use the LAST candle (most recent)
+                    const candle = candles[candles.length - 1];
+                    console.log(`📊 GoldRush Candle: close=${candle.close}, timestamp=${candle.timestamp}`);
                     processNewPrice(candle.close || candle.quote_rate_usd, candle.timestamp);
                 }
             },
