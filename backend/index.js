@@ -77,20 +77,23 @@ async function processNewPrice(price, candleTimestamp) {
         }
     });
 
-    // TRIGGER CODEX SIDE
-    fetchAndEmitCodexTick(price, fastArrival, goldRushLatency);
+    // Check Arbitrage on Fast Update
+    checkArbitrageAndBroadcast();
 }
 
-// --- CODEX GraphQL API (Slow/Standard) ---
-async function fetchAndEmitCodexTick(goldRushPrice, goldRushArrival, goldRushLatencyVal) {
-    const startTime = Date.now();
-    let codexPrice = goldRushPrice; // Default fallback
-    let networkLatency = 0;
+// --- CODEX POLLING LOOP (Independent Feed) ---
+async function startCodexPolling() {
+    console.log("🐢 Starting Codex Polling Loop...");
+    setInterval(async () => {
+        await fetchCodexPrice();
+    }, 2000); // Poll every 2 seconds
+}
 
+async function fetchCodexPrice() {
+    const startTime = Date.now();
     try {
-        // Construct GraphQL Query for latest 1-min bar
         const now = Math.floor(Date.now() / 1000);
-        const lookback = now - 900; // 15 mins lookback
+        const lookback = now - 900;
 
         const query = `
             query {
@@ -101,12 +104,11 @@ async function fetchAndEmitCodexTick(goldRushPrice, goldRushArrival, goldRushLat
                     resolution: "1"
                 ) {
                     c
-                    t
                 }
             }
         `;
 
-        console.log("🐢 CODEX: Fetching GraphQL...");
+        // console.log("🐢 Polling Codex...");
         const response = await axios.post(
             'https://graph.codex.io/graphql',
             { query },
@@ -114,69 +116,78 @@ async function fetchAndEmitCodexTick(goldRushPrice, goldRushArrival, goldRushLat
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': process.env.CODEX_API_KEY
-                    // Note: If Codex requires Bearer, use `Bearer ${...}`. Docs say 'Authorization'.
                 },
                 timeout: 5000
             }
         );
 
         const endTime = Date.now();
-        networkLatency = endTime - startTime;
-
+        const networkLatency = endTime - startTime;
         const data = response.data?.data?.getBars;
 
         if (data && data.c && data.c.length > 0) {
-            // Get the last available close price
-            codexPrice = data.c[data.c.length - 1];
-            console.log(`🐢 CODEX [GRAPHQL]: $${codexPrice} | Latency: ${networkLatency}ms`);
-        } else {
-            console.log(`🐢 CODEX: No data returned. Latency: ${networkLatency}ms`);
-            // We keep codexPrice = fastPrice or old price to avoid 0
+            const codexPrice = data.c[data.c.length - 1];
+
+            // Only broadcast/log if price changed or it's a heartbeat
+            // For this demo, let's broadcast every poll to show it's alive
+            // console.log(`🐢 CODEX: $${codexPrice}`);
+
+            pairs[SYMBOL].slowPrice = codexPrice;
+
+            broadcast({
+                type: 'SLOW_TICK',
+                data: {
+                    pair: SYMBOL,
+                    price: codexPrice,
+                    timestamp: endTime,
+                    latency: networkLatency
+                }
+            });
+
+            checkArbitrageAndBroadcast();
         }
 
     } catch (err) {
-        console.error("🐢 CODEX API Error:", err.message);
-        if (err.response) {
-            console.error("   Response Data:", JSON.stringify(err.response.data));
-        }
-        networkLatency = Date.now() - startTime; // Record the failed time
+        // console.error("🐢 Poll Error:", err.message);
     }
+}
 
-    // --- BROADCAST SLOW TICK ---
-    pairs[SYMBOL].slowPrice = codexPrice;
 
-    broadcast({
-        type: 'SLOW_TICK',
-        data: {
-            pair: SYMBOL,
-            price: codexPrice,
-            timestamp: Date.now(),
-            latency: networkLatency
-        }
-    });
+// --- CENTRAL ARBITRAGE LOGIC ---
+function checkArbitrageAndBroadcast() {
+    const goldRushPrice = pairs[SYMBOL].fastPrice;
+    const codexPrice = pairs[SYMBOL].slowPrice;
 
-    // --- ARBITRAGE LOGIC ---
+    if (!goldRushPrice || !codexPrice) return;
+
     const priceDiff = Math.abs(goldRushPrice - codexPrice);
     const hasArb = priceDiff > 0.00000001;
 
     if (hasArb) {
+        // Debounce: Don't spam trades for the same price diff? 
+        // For simulation, let's just log unique ones or cap rate.
+        // We'll keep it simple: detected = trade.
+
         console.log(`[ARBITRAGE] Diff $${priceDiff.toFixed(8)}`);
 
         const tradeId = Date.now();
         const side = goldRushPrice > codexPrice ? 'LONG' : 'SHORT';
         const pnl = Number((priceDiff * 10000).toFixed(4));
 
+        // We need a way to attribute who "won" or just show the diff.
+        // In decoupled mode, "Fast" is just the current GoldRush State.
+
         const goldRushTrade = {
             id: `fast-${tradeId}`,
-            timestamp: goldRushArrival,
+            timestamp: Date.now(),
             pair: SYMBOL,
             side: side,
             entryPrice: codexPrice,
             exitPrice: goldRushPrice,
             pnl: pnl,
             status: 'Win',
-            latency: `${goldRushLatencyVal}ms`,
-            latencyAdvantageMs: networkLatency
+            latency: `Live`,
+            latencyAdvantageMs: 0 // Calculated differently in async mode
         };
 
         const codexTrade = {
@@ -188,7 +199,7 @@ async function fetchAndEmitCodexTick(goldRushPrice, goldRushArrival, goldRushLat
             exitPrice: goldRushPrice,
             pnl: -pnl,
             status: 'Late',
-            latency: `${networkLatency}ms`
+            latency: `Pooled`
         };
 
         trades.unshift(goldRushTrade);
@@ -196,8 +207,6 @@ async function fetchAndEmitCodexTick(goldRushPrice, goldRushArrival, goldRushLat
 
         broadcast({ type: 'FAST_TRADE', data: goldRushTrade });
         broadcast({ type: 'SLOW_TRADE', data: codexTrade });
-    } else {
-        console.log("[SYNC] No Arbitrage");
     }
 }
 
@@ -288,6 +297,7 @@ async function init() {
     }
 
     startStream();
+    startCodexPolling();
 
     server.listen(PORT, () => {
         console.log(`✅ Backend listening on http://localhost:${PORT}`);
