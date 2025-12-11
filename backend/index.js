@@ -226,7 +226,7 @@ const QUERY = `
     ohlcvCandlesForToken(
       chain_name: BASE_MAINNET
       token_addresses: ["0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b"]
-      interval: ONE_MINUTE
+      interval: ONE_SECOND
       timeframe: ONE_HOUR
     ) {
       timestamp

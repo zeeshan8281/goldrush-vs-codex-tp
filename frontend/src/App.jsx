@@ -38,7 +38,44 @@ function App() {
 
   useEffect(() => {
     const cleanup = connectWebSocket();
-    return cleanup;
+
+    // Heartbeat Loop: Force GoldRush updates during silence
+    const heartbeatParams = { lastGoldRushTime: Date.now() };
+
+    const heartbeat = setInterval(() => {
+      setMarketState(prev => {
+        const activePair = Object.keys(prev.goldrush.ticks)[0];
+        if (!activePair) return prev;
+
+        const lastTick = prev.goldrush.ticks[activePair];
+        if (!lastTick) return prev;
+
+        const now = Date.now();
+        // If no update for > 1000ms, push a heartbeat
+        if (now - lastTick.timestamp > 1000) {
+          return {
+            ...prev,
+            goldrush: {
+              ...prev.goldrush,
+              ticks: {
+                ...prev.goldrush.ticks,
+                [activePair]: {
+                  ...lastTick,
+                  timestamp: now, // Update time to current
+                  isHeartbeat: true
+                }
+              }
+            }
+          };
+        }
+        return prev;
+      });
+    }, 1000);
+
+    return () => {
+      cleanup();
+      clearInterval(heartbeat);
+    };
   }, []);
 
   const handleMessage = (msg) => {
