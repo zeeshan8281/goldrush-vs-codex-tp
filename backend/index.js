@@ -10,7 +10,7 @@ require('dotenv').config();
 const PORT = 3002;
 const SYMBOL = 'VIRTUAL-USD';
 // Using CODEX API Key for the REST fetch
-const REST_API_URL = `https://api.covalenthq.com/v1/base-mainnet/address/0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b/balances_v2/?key=${process.env.CODEX_API_KEY}`;
+// Using CODEX API Key for the REST fetch
 const WS_STREAM_URL = 'wss://gr-staging-v2.streaming.covalenthq.com/graphql';
 
 // --- STATE MANAGEMENT ---
@@ -247,16 +247,44 @@ function startStream() {
 async function init() {
     console.log("🚀 Server Starting (REAL MODE)...");
 
-    // Get Initial Price using the defined REST URL (still useful for quick init)
+    // Get Initial Price using Codex GraphQL
     try {
-        const res = await axios.get(REST_API_URL);
-        const initialPrice = res.data?.data?.items?.[0]?.quote_rate || 0;
+        const now = Math.floor(Date.now() / 1000);
+        const lookback = now - 900;
+        const query = `
+            query {
+                getBars(
+                    symbol: "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b:8453"
+                    from: ${lookback}
+                    to: ${now}
+                    resolution: "1"
+                ) {
+                    c
+                }
+            }
+        `;
+
+        const res = await axios.post(
+            'https://graph.codex.io/graphql',
+            { query },
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': process.env.CODEX_API_KEY
+                },
+                timeout: 5000
+            }
+        );
+
+        const data = res.data?.data?.getBars;
+        const initialPrice = (data && data.c && data.c.length > 0) ? data.c[data.c.length - 1] : 0;
+
         pairs[SYMBOL].price = initialPrice;
         pairs[SYMBOL].fastPrice = initialPrice;
         pairs[SYMBOL].slowPrice = initialPrice;
         console.log(`✅ Initial Price Snapshot: $${initialPrice}`);
     } catch (err) {
-        console.log("⚠️ Could not fetch initial price.");
+        console.log("⚠️ Could not fetch initial price:", err.message);
     }
 
     startStream();
