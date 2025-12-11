@@ -75,27 +75,49 @@ export default function Chart({ data }) {
 
     // 2. Handle Data Updates
     useEffect(() => {
-        if (seriesRef.current && data && data.price) {
-            try {
-                // Convert ms to seconds
-                const timeInSeconds = Math.floor(data.timestamp / 1000);
+        if (!seriesRef.current || !data) return;
 
-                // Logic: 
-                // lightweight-charts 'update()' handles adding NEW bars OR updating the LAST bar
-                // if the time is the same. It is smart.
-                // We just feed it the point.
+        try {
+            // Case A: Initial History (Array)
+            if (Array.isArray(data)) {
+                const formattedData = data.map(d => ({
+                    time: Math.floor(d.timestamp / 1000),
+                    value: d.price
+                })).sort((a, b) => a.time - b.time);
 
+                // Deduplicate and ensure ascending time
+                const uniqueData = [];
+                let maxTime = 0;
+                formattedData.forEach(pt => {
+                    if (pt.time > maxTime) {
+                        uniqueData.push(pt);
+                        maxTime = pt.time;
+                    }
+                });
+
+                seriesRef.current.setData(uniqueData);
+                if (chartRef.current) chartRef.current.timeScale().fitContent();
+                lastTimeRef.current = maxTime;
+            }
+            // Case B: Real-time Update (Object)
+            else if (data.price) {
+                let timeInSeconds = Math.floor(data.timestamp / 1000);
+
+                // Prevent going backward
+                if (timeInSeconds < lastTimeRef.current) {
+                    timeInSeconds = lastTimeRef.current; // unexpected, but safe
+                }
+
+                // Allow "update last bar" if same second
                 seriesRef.current.update({
                     time: timeInSeconds,
                     value: data.price
                 });
 
                 lastTimeRef.current = timeInSeconds;
-
-            } catch (e) {
-                // If specific error occurs (e.g. older time), ignore it
-                // console.warn("Chart Update Error:", e);
             }
+        } catch (e) {
+            console.warn("Chart Data Error", e);
         }
     }, [data]);
 

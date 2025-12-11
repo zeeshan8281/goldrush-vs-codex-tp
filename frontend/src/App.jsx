@@ -93,21 +93,38 @@ function App() {
         const firstPair = Object.keys(initPairs)[0];
         const initialData = firstPair ? initPairs[firstPair] : null;
 
+        // Generate Synthetic History (60 seconds back) to fill the chart
+        const now = Date.now();
+        const historyLength = 60;
+        const fakeHistory = [];
+
+        if (initialData) {
+          for (let i = historyLength; i > 0; i--) {
+            fakeHistory.push({
+              pair: firstPair,
+              price: initialData.price, // Use initial price for history
+              timestamp: now - (i * 1000)
+            });
+          }
+        }
+
         setMarketState(prev => ({
           ...prev,
           ticks: initPairs,
           trades: msg.data.trades,
           ideas: msg.data.ideas,
-          // Populate Split View immediately
+          // Populate Split View with HISTORY
           goldrush: {
             ...prev.goldrush,
-            ticks: initialData ? { [firstPair]: { pair: firstPair, price: initialData.fastPrice || initialData.price, timestamp: Date.now() } } : prev.goldrush.ticks
+            ticks: initialData ? fakeHistory : prev.goldrush.ticks // Pass array first!
           },
           codex: {
             ...prev.codex,
-            ticks: initialData ? { [firstPair]: { pair: firstPair, price: initialData.slowPrice || initialData.price, latency: 'Init', timestamp: Date.now() } } : prev.codex.ticks
+            ticks: initialData ? fakeHistory : prev.codex.ticks
           }
         }));
+
+        // After 100ms, switch to realtime mode (single tick updates will flow naturally)
         break;
 
       case 'FAST_TICK':
