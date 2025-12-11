@@ -46,8 +46,10 @@ export default function Dashboard({ state }) {
                 </div>
 
                 {/* 2. BOTTOM: TRADES (Strict 40% Height) */}
-                <div className="glass-card rounded-xl border border-primary/10 overflow-hidden flex flex-col">
-                    <TradeList trades={state.goldrush.trades} mode="fast" />
+                <div className="glass-card rounded-xl border border-primary/10 relative overflow-hidden">
+                    <div className="absolute inset-0 w-full h-full">
+                        <TradeList trades={state.goldrush.trades} mode="fast" />
+                    </div>
                 </div>
             </div>
 
@@ -81,8 +83,10 @@ export default function Dashboard({ state }) {
                 </div>
 
                 {/* 2. BOTTOM: TRADES (Strict 40% Height) */}
-                <div className="glass-card rounded-xl border border-white/5 overflow-hidden flex flex-col">
-                    <TradeList trades={state.codex.trades} mode="slow" />
+                <div className="glass-card rounded-xl border border-white/5 relative overflow-hidden">
+                    <div className="absolute inset-0 w-full h-full">
+                        <TradeList trades={state.codex.trades} mode="slow" />
+                    </div>
                 </div>
             </div>
 
