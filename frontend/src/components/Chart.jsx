@@ -32,6 +32,10 @@ export default function Chart({ data }) {
             },
             rightPriceScale: {
                 borderColor: 'rgba(255, 255, 255, 0.1)',
+                scaleMargins: {
+                    top: 0.05,
+                    bottom: 0.05,
+                },
                 autoScale: true,
             },
             crosshair: {
