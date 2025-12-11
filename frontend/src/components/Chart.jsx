@@ -23,10 +23,13 @@ export default function Chart({ data }) {
             timeScale: {
                 timeVisible: true,
                 secondsVisible: true,
+                borderColor: 'rgba(255, 255, 255, 0.1)',
             },
+            rightPriceScale: {
+                borderColor: 'rgba(255, 255, 255, 0.1)',
+            }
         });
 
-        // Use addAreaSeries method
         const newSeries = chart.addAreaSeries({
             lineColor: '#22c55e',
             topColor: 'rgba(34, 197, 94, 0.4)',
@@ -37,16 +40,17 @@ export default function Chart({ data }) {
         seriesRef.current = newSeries;
         chartRef.current = chart;
 
-        // Handle Resize
-        const handleResize = () => {
-            if (chartContainerRef.current) {
-                chart.applyOptions({ width: chartContainerRef.current.clientWidth });
-            }
-        };
-        window.addEventListener('resize', handleResize);
+        // Resize Observer to handle flex layout changes
+        const resizeObserver = new ResizeObserver(entries => {
+            if (entries.length === 0 || !entries[0].contentRect) return;
+            const { width, height } = entries[0].contentRect;
+            chart.applyOptions({ width, height });
+        });
+
+        resizeObserver.observe(chartContainerRef.current);
 
         return () => {
-            window.removeEventListener('resize', handleResize);
+            resizeObserver.disconnect();
             chart.remove();
         };
     }, []);
