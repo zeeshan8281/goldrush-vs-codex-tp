@@ -1,7 +1,7 @@
 import React from 'react';
 import Chart from './Chart';
 import TradeList from './TradeList';
-import { TrendingUp, Activity, DollarSign, Zap, Database } from 'lucide-react';
+import { Zap, Database } from 'lucide-react';
 
 export default function Dashboard({ state }) {
     // Determine active pair
@@ -14,11 +14,16 @@ export default function Dashboard({ state }) {
     const totalCodexPnL = state.codex.trades.reduce((acc, t) => acc + (Number(t.pnl) || 0), 0);
 
     return (
-        <div className="grid grid-cols-2 gap-3 h-[calc(100vh-140px)]">
-            {/* LEFT COLUMN: GOLDRUSH (FAST) */}
-            <div className="flex flex-col gap-3 h-full">
-                <div className="glass-card flex-1 min-h-0 rounded-xl p-4 relative overflow-hidden border-2 border-primary/20 shadow-[0_0_50px_rgba(74,222,128,0.1)]">
-                    <div className="absolute top-4 left-4 z-10 flex flex-col gap-1">
+        // MAIN GRID: 2 Columns, Fixed Height
+        <div className="grid grid-cols-2 gap-4 h-[calc(100vh-120px)] p-1">
+
+            {/* --- LEFT COLUMN (GOLDRUSH) --- */}
+            <div className="grid grid-rows-[60%_40%] gap-4 h-full">
+
+                {/* 1. TOP: CHART (Strict 60% Height) */}
+                <div className="glass-card rounded-xl border-2 border-primary/20 shadow-[0_0_50px_rgba(74,222,128,0.1)] relative overflow-hidden">
+                    {/* Header Overlay */}
+                    <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 pointer-events-none">
                         <div className="flex items-center gap-2">
                             <Zap className="w-5 h-5 text-yellow-400" />
                             <h2 className="text-primary font-bold text-lg tracking-wide">GOLDRUSH API</h2>
@@ -33,19 +38,27 @@ export default function Dashboard({ state }) {
                             </div>
                         </div>
                     </div>
-                    {/* Chart Component */}
-                    <Chart data={goldrushTick} />
+
+                    {/* Chart Canvas Container - Absolute to fill parent exactly */}
+                    <div className="absolute inset-0 top-0 w-full h-full z-10">
+                        <Chart data={goldrushTick} />
+                    </div>
                 </div>
 
-                <div className="h-[40%] min-h-[300px] glass-card rounded-xl p-0 overflow-hidden flex flex-col border border-primary/10">
+                {/* 2. BOTTOM: TRADES (Strict 40% Height) */}
+                <div className="glass-card rounded-xl border border-primary/10 overflow-hidden flex flex-col">
                     <TradeList trades={state.goldrush.trades} mode="fast" />
                 </div>
             </div>
 
-            {/* RIGHT COLUMN: CODEX (SLOW) */}
-            <div className="flex flex-col gap-3 h-full">
-                <div className="glass-card flex-1 min-h-0 rounded-xl p-4 relative overflow-hidden border-2 border-white/5 opacity-80">
-                    <div className="absolute top-4 left-4 z-10 flex flex-col gap-1">
+
+            {/* --- RIGHT COLUMN (CODEX) --- */}
+            <div className="grid grid-rows-[60%_40%] gap-4 h-full">
+
+                {/* 1. TOP: CHART (Strict 60% Height) */}
+                <div className="glass-card rounded-xl border-2 border-white/5 opacity-80 relative overflow-hidden">
+                    {/* Header Overlay */}
+                    <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 pointer-events-none">
                         <div className="flex items-center gap-2">
                             <Database className="w-5 h-5 text-gray-400" />
                             <h2 className="text-muted-foreground font-bold text-lg tracking-wide">CODEX API</h2>
@@ -60,14 +73,19 @@ export default function Dashboard({ state }) {
                             </div>
                         </div>
                     </div>
-                    {/* Chart Component */}
-                    <Chart data={codexTick} />
+
+                    {/* Chart Canvas Container */}
+                    <div className="absolute inset-0 top-0 w-full h-full z-10">
+                        <Chart data={codexTick} />
+                    </div>
                 </div>
 
-                <div className="h-[40%] min-h-[300px] glass-card rounded-xl p-0 overflow-hidden flex flex-col border border-white/5">
+                {/* 2. BOTTOM: TRADES (Strict 40% Height) */}
+                <div className="glass-card rounded-xl border border-white/5 overflow-hidden flex flex-col">
                     <TradeList trades={state.codex.trades} mode="slow" />
                 </div>
             </div>
+
         </div>
     );
 }
