@@ -1,11 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Play, Pause, Activity, Zap, History } from 'lucide-react';
+import { Zap } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 
 function App() {
   const [socket, setSocket] = useState(null);
   const [connected, setConnected] = useState(false);
-  const [simRunning, setSimRunning] = useState(false);
 
   const [marketState, setMarketState] = useState({
     goldrush: { ticks: {}, trades: [] },
@@ -152,13 +151,6 @@ function App() {
     }
   };
 
-  const toggleSim = () => {
-    if (!socket) return;
-    const type = simRunning ? 'STOP' : 'START';
-    socket.send(JSON.stringify({ type }));
-    setSimRunning(!simRunning);
-  };
-
   return (
     <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/20">
       {/* Header */}
@@ -179,18 +171,6 @@ function App() {
               <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
               {connected ? 'SYSTEM ONLINE' : 'DISCONNECTED'}
             </div>
-
-            {/* Button Hidden as system is auto-start */}
-            {/* <button
-              onClick={toggleSim}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all ${simRunning
-                ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20'
-                : 'bg-primary text-black hover:bg-primary/90 shadow-[0_0_20px_rgba(74,222,128,0.3)]'
-                }`}
-            >
-              {simRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-              {simRunning ? 'Stop Simulation' : 'Start Simulation'}
-            </button> */}
           </div>
         </div>
       </header>

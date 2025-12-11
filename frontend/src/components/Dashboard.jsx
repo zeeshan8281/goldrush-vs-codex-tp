@@ -1,8 +1,7 @@
 import React from 'react';
 import Chart from './Chart';
-import IdeasPanel from './IdeasPanel';
 import TradeList from './TradeList';
-import { TrendingUp, Activity, DollarSign } from 'lucide-react';
+import { TrendingUp, Activity, DollarSign, Zap, Database } from 'lucide-react';
 
 export default function Dashboard({ state }) {
     // Determine active pair
@@ -21,7 +20,8 @@ export default function Dashboard({ state }) {
                 <div className="glass-card flex-1 rounded-xl p-4 relative overflow-hidden border-2 border-primary/20 shadow-[0_0_50px_rgba(74,222,128,0.1)]">
                     <div className="absolute top-4 left-4 z-10 flex flex-col gap-1">
                         <div className="flex items-center gap-2">
-                            <h2 className="text-primary font-bold text-lg tracking-wide">⚡ GOLDRUSH API</h2>
+                            <Zap className="w-5 h-5 text-yellow-400" />
+                            <h2 className="text-primary font-bold text-lg tracking-wide">GOLDRUSH API</h2>
                             <span className="bg-primary/20 text-primary text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LIVE STREAM</span>
                         </div>
                         <div className="flex items-baseline gap-3">
@@ -47,7 +47,8 @@ export default function Dashboard({ state }) {
                 <div className="glass-card flex-1 rounded-xl p-4 relative overflow-hidden border-2 border-white/5 opacity-80">
                     <div className="absolute top-4 left-4 z-10 flex flex-col gap-1">
                         <div className="flex items-center gap-2">
-                            <h2 className="text-muted-foreground font-bold text-lg tracking-wide">🐢 CODEX API</h2>
+                            <Database className="w-5 h-5 text-gray-400" />
+                            <h2 className="text-muted-foreground font-bold text-lg tracking-wide">CODEX API</h2>
                             <span className="bg-white/10 text-muted-foreground text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LATENCY: {codexTick?.latency || '...'}ms</span>
                         </div>
                         <div className="flex items-baseline gap-3">

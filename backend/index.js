@@ -160,13 +160,12 @@ async function fetchAndEmitCodexTick(goldRushPrice, goldRushArrival, goldRushLat
     const hasArb = priceDiff > 0.00000001;
 
     if (hasArb) {
-        console.log(`💰 ARBITRAGE FOUND: Diff $${priceDiff.toFixed(8)}`);
+        console.log(`[ARBITRAGE] Diff $${priceDiff.toFixed(8)}`);
 
         const tradeId = Date.now();
         const side = goldRushPrice > codexPrice ? 'LONG' : 'SHORT';
         const pnl = Number((priceDiff * 10000).toFixed(4));
 
-        // GoldRush (Win)
         const goldRushTrade = {
             id: `fast-${tradeId}`,
             timestamp: goldRushArrival,
@@ -180,7 +179,6 @@ async function fetchAndEmitCodexTick(goldRushPrice, goldRushArrival, goldRushLat
             latencyAdvantageMs: networkLatency
         };
 
-        // Codex (Loss/Late)
         const codexTrade = {
             id: `slow-${tradeId}`,
             timestamp: Date.now(),
@@ -199,7 +197,7 @@ async function fetchAndEmitCodexTick(goldRushPrice, goldRushArrival, goldRushLat
         broadcast({ type: 'FAST_TRADE', data: goldRushTrade });
         broadcast({ type: 'SLOW_TRADE', data: codexTrade });
     } else {
-        console.log("⚖️  Synced: No Arbitrage");
+        console.log("[SYNC] No Arbitrage");
     }
 }
 
