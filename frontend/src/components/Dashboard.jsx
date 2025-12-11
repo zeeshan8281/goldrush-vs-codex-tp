@@ -17,7 +17,7 @@ export default function Dashboard({ state }) {
         <div className="grid grid-cols-2 gap-3 h-[calc(100vh-140px)]">
             {/* LEFT COLUMN: GOLDRUSH (FAST) */}
             <div className="flex flex-col gap-3 h-full">
-                <div className="glass-card flex-1 rounded-xl p-4 relative overflow-hidden border-2 border-primary/20 shadow-[0_0_50px_rgba(74,222,128,0.1)]">
+                <div className="glass-card flex-1 min-h-0 rounded-xl p-4 relative overflow-hidden border-2 border-primary/20 shadow-[0_0_50px_rgba(74,222,128,0.1)]">
                     <div className="absolute top-4 left-4 z-10 flex flex-col gap-1">
                         <div className="flex items-center gap-2">
                             <Zap className="w-5 h-5 text-yellow-400" />
@@ -44,7 +44,7 @@ export default function Dashboard({ state }) {
 
             {/* RIGHT COLUMN: CODEX (SLOW) */}
             <div className="flex flex-col gap-3 h-full">
-                <div className="glass-card flex-1 rounded-xl p-4 relative overflow-hidden border-2 border-white/5 opacity-80">
+                <div className="glass-card flex-1 min-h-0 rounded-xl p-4 relative overflow-hidden border-2 border-white/5 opacity-80">
                     <div className="absolute top-4 left-4 z-10 flex flex-col gap-1">
                         <div className="flex items-center gap-2">
                             <Database className="w-5 h-5 text-gray-400" />
