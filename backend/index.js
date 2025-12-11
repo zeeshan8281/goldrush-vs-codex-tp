@@ -61,7 +61,7 @@ async function processNewPrice(price, candleTimestamp) {
     // Handle slight clock skews or if timestamp was actually close-time (unlikely for OHLCV)
     if (goldRushLatency < 0) goldRushLatency = 0;
 
-    console.log(`\n⚡ FAST [STREAM]: $${price} | Candle: ${candleTimestamp} | Latency: ${goldRushLatency}ms`);
+    console.log(`\n⚡ GOLDRUSH [STREAM]: $${price} | Candle: ${candleTimestamp} | Latency: ${goldRushLatency}ms`);
 
     // Update State
     pairs[SYMBOL].price = price;
@@ -77,14 +77,14 @@ async function processNewPrice(price, candleTimestamp) {
         }
     });
 
-    // TRIGGER SLOW SIDE
-    fetchAndEmitSlowTick(price, fastArrival, goldRushLatency);
+    // TRIGGER CODEX SIDE
+    fetchAndEmitCodexTick(price, fastArrival, goldRushLatency);
 }
 
 // --- CODEX GraphQL API (Slow/Standard) ---
-async function fetchAndEmitSlowTick(fastPrice, fastArrivalTime, fastLatencyVal) {
+async function fetchAndEmitCodexTick(goldRushPrice, goldRushArrival, goldRushLatencyVal) {
     const startTime = Date.now();
-    let codexPrice = fastPrice; // Default fallback
+    let codexPrice = goldRushPrice; // Default fallback
     let networkLatency = 0;
 
     try {
@@ -106,7 +106,7 @@ async function fetchAndEmitSlowTick(fastPrice, fastArrivalTime, fastLatencyVal) 
             }
         `;
 
-        console.log("🐢 SLOW: Fetching Codex GraphQL...");
+        console.log("🐢 CODEX: Fetching GraphQL...");
         const response = await axios.post(
             'https://graph.codex.io/graphql',
             { query },
@@ -128,14 +128,14 @@ async function fetchAndEmitSlowTick(fastPrice, fastArrivalTime, fastLatencyVal) 
         if (data && data.c && data.c.length > 0) {
             // Get the last available close price
             codexPrice = data.c[data.c.length - 1];
-            console.log(`🐢 SLOW (Codex GraphQL): $${codexPrice} | Latency: ${networkLatency}ms`);
+            console.log(`🐢 CODEX [GRAPHQL]: $${codexPrice} | Latency: ${networkLatency}ms`);
         } else {
-            console.log(`🐢 SLOW: No data returned from Codex. using fallback. Latency: ${networkLatency}ms`);
+            console.log(`🐢 CODEX: No data returned. Latency: ${networkLatency}ms`);
             // We keep codexPrice = fastPrice or old price to avoid 0
         }
 
     } catch (err) {
-        console.error("🐢 SLOW Codex API Error:", err.message);
+        console.error("🐢 CODEX API Error:", err.message);
         if (err.response) {
             console.error("   Response Data:", JSON.stringify(err.response.data));
         }
@@ -156,48 +156,48 @@ async function fetchAndEmitSlowTick(fastPrice, fastArrivalTime, fastLatencyVal) 
     });
 
     // --- ARBITRAGE LOGIC ---
-    const priceDiff = Math.abs(fastPrice - codexPrice);
+    const priceDiff = Math.abs(goldRushPrice - codexPrice);
     const hasArb = priceDiff > 0.00000001;
 
     if (hasArb) {
         console.log(`💰 ARBITRAGE FOUND: Diff $${priceDiff.toFixed(8)}`);
 
         const tradeId = Date.now();
-        const side = fastPrice > codexPrice ? 'LONG' : 'SHORT';
+        const side = goldRushPrice > codexPrice ? 'LONG' : 'SHORT';
         const pnl = Number((priceDiff * 10000).toFixed(4));
 
         // GoldRush (Win)
-        const fastTrade = {
+        const goldRushTrade = {
             id: `fast-${tradeId}`,
-            timestamp: fastArrivalTime,
+            timestamp: goldRushArrival,
             pair: SYMBOL,
             side: side,
             entryPrice: codexPrice,
-            exitPrice: fastPrice,
+            exitPrice: goldRushPrice,
             pnl: pnl,
             status: 'Win',
-            latency: `${fastLatencyVal}ms`,
+            latency: `${goldRushLatencyVal}ms`,
             latencyAdvantageMs: networkLatency
         };
 
         // Codex (Loss/Late)
-        const slowTrade = {
+        const codexTrade = {
             id: `slow-${tradeId}`,
             timestamp: Date.now(),
             pair: SYMBOL,
             side: side,
-            entryPrice: fastPrice,
-            exitPrice: fastPrice,
+            entryPrice: goldRushPrice,
+            exitPrice: goldRushPrice,
             pnl: -pnl,
             status: 'Late',
             latency: `${networkLatency}ms`
         };
 
-        trades.unshift(fastTrade);
+        trades.unshift(goldRushTrade);
         if (trades.length > 50) trades.pop();
 
-        broadcast({ type: 'FAST_TRADE', data: fastTrade });
-        broadcast({ type: 'SLOW_TRADE', data: slowTrade });
+        broadcast({ type: 'FAST_TRADE', data: goldRushTrade });
+        broadcast({ type: 'SLOW_TRADE', data: codexTrade });
     } else {
         console.log("⚖️  Synced: No Arbitrage");
     }
