@@ -3,9 +3,13 @@ import { createChart, ColorType } from 'lightweight-charts';
 
 export default function Chart({ data }) {
     const chartContainerRef = useRef();
-    const seriesRef = useRef(null);
     const chartRef = useRef(null);
+    const seriesRef = useRef(null);
 
+    // Track the last timestamp we successfully plotted to handle 'update' vs 'append'
+    const lastTimeRef = useRef(0);
+
+    // 1. Initialize Chart (Once)
     useEffect(() => {
         if (!chartContainerRef.current) return;
 
@@ -24,9 +28,15 @@ export default function Chart({ data }) {
                 timeVisible: true,
                 secondsVisible: true,
                 borderColor: 'rgba(255, 255, 255, 0.1)',
+                rightOffset: 5,
             },
             rightPriceScale: {
                 borderColor: 'rgba(255, 255, 255, 0.1)',
+                autoScale: true,
+            },
+            crosshair: {
+                vertLine: { labelBackgroundColor: '#22c55e' },
+                horzLine: { labelBackgroundColor: '#22c55e' },
             }
         });
 
@@ -40,13 +50,12 @@ export default function Chart({ data }) {
         seriesRef.current = newSeries;
         chartRef.current = chart;
 
-        // Resize Observer to handle flex layout changes
+        // Resize Observer (Keep this as it solved layout issues)
         const resizeObserver = new ResizeObserver(entries => {
             if (entries.length === 0 || !entries[0].contentRect) return;
             const { width, height } = entries[0].contentRect;
             chart.applyOptions({ width, height });
         });
-
         resizeObserver.observe(chartContainerRef.current);
 
         return () => {
@@ -55,15 +64,28 @@ export default function Chart({ data }) {
         };
     }, []);
 
+    // 2. Handle Data Updates
     useEffect(() => {
-        if (seriesRef.current && data) {
+        if (seriesRef.current && data && data.price) {
             try {
+                // Convert ms to seconds
+                const timeInSeconds = Math.floor(data.timestamp / 1000);
+
+                // Logic: 
+                // lightweight-charts 'update()' handles adding NEW bars OR updating the LAST bar
+                // if the time is the same. It is smart.
+                // We just feed it the point.
+
                 seriesRef.current.update({
-                    time: Math.floor(data.timestamp / 1000),
+                    time: timeInSeconds,
                     value: data.price
                 });
+
+                lastTimeRef.current = timeInSeconds;
+
             } catch (e) {
-                // Ignore duplicate time errors
+                // If specific error occurs (e.g. older time), ignore it
+                // console.warn("Chart Update Error:", e);
             }
         }
     }, [data]);
