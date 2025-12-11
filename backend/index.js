@@ -8,7 +8,7 @@ require('dotenv').config();
 
 // --- CONFIGURATION ---
 const PORT = 3002;
-const SYMBOL = '0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b'; // VIRTUAL Token on Base
+const SYMBOL = '0x4B6104755AfB5Da4581B81C552DA3A25608c73B8'; // Token on Base
 // Using CODEX API Key for the REST fetch
 // Using CODEX API Key for the REST fetch
 const WS_STREAM_URL = 'wss://gr-staging-v2.streaming.covalenthq.com/graphql';
