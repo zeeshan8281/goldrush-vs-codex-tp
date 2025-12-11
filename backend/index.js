@@ -224,22 +224,29 @@ const client = createClient({
 function startStream() {
     console.log("🔗 Connecting to GoldRush Stream...");
     // 2. Define the GraphQL Subscription Query
-    // Using 'updatePairs' stream with full metadata
+    // Using 'ohlcvCandlesForToken' per user documentation (Resolves Token -> Pair automatically)
     const SUBSCRIPTION_QUERY = `
         subscription {
-            updatePairs(
+            ohlcvCandlesForToken(
                 chain_name: BASE_MAINNET
-                pair_addresses: ["${SYMBOL}"]
+                token_addresses: ["${SYMBOL}"]
+                interval: ONE_SECOND
+                timeframe: ONE_HOUR
+                limit: 1000
             ) {
                 chain_name
                 pair_address
+                interval
+                timeframe
                 timestamp
-                quote_rate
-                quote_rate_usd
+                open
+                high
+                low
+                close
                 volume
                 volume_usd
-                market_cap
-                liquidity
+                quote_rate
+                quote_rate_usd
                 base_token {
                     contract_name
                     contract_address
@@ -252,18 +259,6 @@ function startStream() {
                     contract_decimals
                     contract_ticker_symbol
                 }
-                price_deltas {
-                    last_5m
-                    last_1hr
-                    last_6hr
-                    last_24hr
-                }
-                swap_counts {
-                    last_5m
-                    last_1hr
-                    last_6hr
-                    last_24hr
-                }
             }
         }
     `;
@@ -275,10 +270,10 @@ function startStream() {
         },
         {
             next: (data) => {
-                const event = data?.data?.updatePairs?.[0];
-                if (event) {
-                    // Use USD price if available, otherwise raw quote rate
-                    processNewPrice(event.quote_rate_usd || event.quote_rate, event.timestamp);
+                const candle = data?.data?.ohlcvCandlesForToken?.[0];
+                if (candle) {
+                    // Use USD Quote Rate as the live price
+                    processNewPrice(candle.quote_rate_usd || candle.close, candle.timestamp);
                 }
             },
             error: (err) => console.error('❌ Stream Error:', err),
