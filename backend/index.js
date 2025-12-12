@@ -48,6 +48,11 @@ const THRESHOLD = 0.0001;
 // --- SERVER SETUP ---
 const app = express();
 app.use(cors());
+
+// Health check endpoint for Railway
+app.get('/', (req, res) => {
+    res.json({ status: 'ok', service: 'GoldRush vs Codex Trading Bot' });
+});
 app.use(express.json());
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
