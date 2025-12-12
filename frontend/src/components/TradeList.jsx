@@ -31,7 +31,6 @@ export default function TradeList({ trades, mode = 'fast', totalPnL = 0 }) {
                             <th className="p-3 font-medium text-xs uppercase tracking-wider">Type</th>
                             <th className="p-3 font-medium text-xs uppercase tracking-wider">Entry</th>
                             <th className="p-3 font-medium text-xs uppercase tracking-wider">Exit</th>
-                            <th className="p-3 font-medium text-xs uppercase tracking-wider">Latency</th>
                             <th className="p-3 font-medium text-xs uppercase tracking-wider">P&L</th>
                         </tr>
                     </thead>
@@ -54,9 +53,6 @@ export default function TradeList({ trades, mode = 'fast', totalPnL = 0 }) {
                                     </td>
                                     <td className="p-3 font-mono opacity-80">
                                         ${Number(trade.exitPrice).toFixed(4)}
-                                    </td>
-                                    <td className={`p-3 font-mono ${mode === 'fast' ? 'text-yellow-400' : 'text-purple-400'}`}>
-                                        {trade.latency || 'N/A'}
                                     </td>
                                     <td className={`p-3 font-mono font-bold ${isWin ? 'text-green-400' : 'text-red-400'}`}>
                                         {isWin ? '+' : ''}${Number(trade.pnl || 0).toFixed(2)}
