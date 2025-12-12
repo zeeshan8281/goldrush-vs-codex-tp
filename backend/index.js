@@ -6,197 +6,180 @@ const axios = require('axios');
 const { GoldRushClient, StreamingChain, StreamingInterval, StreamingTimeframe } = require('@covalenthq/client-sdk');
 require('dotenv').config();
 
-// --- CONFIGURATION ---
+// ============================================================================
+// CONFIGURATION
+// ============================================================================
+
 const PORT = process.env.PORT || 3002;
 const SYMBOL = 'VIRTUAL-USD';
 const TOKEN_ADDRESS = '0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b';
+const CHAIN_ID = '8453'; // Base Mainnet
+const TRADING_THRESHOLD = 0.0001; // 0.01% price change
+const HOLD_TIME_MS = 10000; // 10 seconds max hold
+const MAX_CANDLES = 60;
+const MAX_TRADES = 50;
 
-// --- STATE MANAGEMENT ---
-let pairs = {
-    [SYMBOL]: {
-        price: 0,
-        fastPrice: 0,
-        slowPrice: 0
-    }
+// ============================================================================
+// STATE
+// ============================================================================
+
+const state = {
+    pairs: {
+        [SYMBOL]: { price: 0, fastPrice: 0, slowPrice: 0 }
+    },
+    goldrush: {
+        candles: [],
+        position: null,
+        lastPrice: null,
+        trades: [],
+        totalPnL: 0
+    },
+    codex: {
+        candles: [],
+        position: null,
+        lastPrice: null,
+        trades: [],
+        totalPnL: 0
+    },
+    clients: new Set()
 };
 
-// Store OHLCV candle arrays for charts (independent)
-let goldrushCandles = [];
-let codexCandles = [];
+// ============================================================================
+// SERVER SETUP
+// ============================================================================
 
-// INDEPENDENT Paper Trading States - NO CONNECTION between them
-let goldrushTrading = {
-    position: null,       // { side: 'LONG'/'SHORT', entryPrice, entryTime }
-    lastPrice: null,
-    trades: [],
-    totalPnL: 0
-};
-
-let codexTrading = {
-    position: null,
-    lastPrice: null,
-    trades: [],
-    totalPnL: 0
-};
-
-let clients = new Set();
-let isRunning = true;
-
-// Trading threshold: 0.01% price change to trigger (lowered for demo)
-const THRESHOLD = 0.0001;
-
-// --- SERVER SETUP ---
 const app = express();
 app.use(cors());
-
-// Health check endpoint for Railway
-app.get('/', (req, res) => {
-    console.log('✅ Health check hit');
-    res.status(200).json({ status: 'ok', service: 'GoldRush vs Codex Trading Bot', timestamp: new Date().toISOString() });
-});
 app.use(express.json());
+
+app.get('/', (req, res) => {
+    res.json({
+        status: 'ok',
+        service: 'GoldRush vs Codex Trading Bot',
+        timestamp: new Date().toISOString()
+    });
+});
+
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// --- BROADCAST HELPER ---
-function broadcast(msg) {
-    if (!isRunning) return;
-    const data = JSON.stringify(msg);
-    clients.forEach(client => {
+// ============================================================================
+// WEBSOCKET BROADCAST
+// ============================================================================
+
+function broadcast(message) {
+    const data = JSON.stringify(message);
+    state.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             client.send(data);
         }
     });
 }
 
-// --- GOLDRUSH PAPER TRADING (Independent - uses ONLY GoldRush data) ---
-function checkGoldrushTrade(currentPrice) {
+// ============================================================================
+// TRADING ENGINE
+// ============================================================================
+
+function executeTrade(source, currentPrice) {
+    const trading = state[source];
     if (!currentPrice || currentPrice <= 0) return;
 
-    const prev = goldrushTrading.lastPrice;
-    goldrushTrading.lastPrice = currentPrice;
-
+    const prev = trading.lastPrice;
+    trading.lastPrice = currentPrice;
     if (!prev) return;
 
     const priceChange = (currentPrice - prev) / prev;
 
-    if (goldrushTrading.position) {
-        const pos = goldrushTrading.position;
-        const holdTime = Date.now() - pos.entryTime;
-
-        const shouldExit = (pos.side === 'LONG' && priceChange < -THRESHOLD) ||
-            (pos.side === 'SHORT' && priceChange > THRESHOLD) ||
-            holdTime > 10000;  // Close after 10 seconds max
-
-        if (shouldExit) {
-            const pnl = pos.side === 'LONG'
-                ? (currentPrice - pos.entryPrice) * 10000
-                : (pos.entryPrice - currentPrice) * 10000;
-
-            const trade = {
-                id: `gr-${Date.now()}`,
-                timestamp: Date.now(),
-                pair: SYMBOL,
-                side: pos.side,
-                entryPrice: pos.entryPrice,
-                exitPrice: currentPrice,
-                pnl: Number(pnl.toFixed(2)),
-                latency: 'Live'
-            };
-
-            goldrushTrading.trades.unshift(trade);
-            if (goldrushTrading.trades.length > 50) goldrushTrading.trades.pop();
-            goldrushTrading.totalPnL += trade.pnl;
-            goldrushTrading.position = null;
-
-            broadcast({ type: 'FAST_TRADE', data: trade });
-            console.log(`📈 GoldRush CLOSED ${pos.side}: PnL $${trade.pnl.toFixed(2)}`);
-        }
+    if (trading.position) {
+        handleExitConditions(source, trading, currentPrice, priceChange);
     } else {
-        if (priceChange > THRESHOLD) {
-            goldrushTrading.position = { side: 'LONG', entryPrice: currentPrice, entryTime: Date.now() };
-            console.log(`📈 GoldRush OPENED LONG @ $${currentPrice.toFixed(4)}`);
-        } else if (priceChange < -THRESHOLD) {
-            goldrushTrading.position = { side: 'SHORT', entryPrice: currentPrice, entryTime: Date.now() };
-            console.log(`📉 GoldRush OPENED SHORT @ $${currentPrice.toFixed(4)}`);
-        }
+        handleEntrySignals(source, trading, currentPrice, priceChange);
     }
 }
 
-// --- CODEX PAPER TRADING (Independent - uses ONLY Codex data) ---
-function checkCodexTrade(currentPrice) {
-    if (!currentPrice || currentPrice <= 0) return;
+function handleExitConditions(source, trading, currentPrice, priceChange) {
+    const pos = trading.position;
+    const holdTime = Date.now() - pos.entryTime;
 
-    const prev = codexTrading.lastPrice;
-    codexTrading.lastPrice = currentPrice;
+    const shouldExit =
+        (pos.side === 'LONG' && priceChange < -TRADING_THRESHOLD) ||
+        (pos.side === 'SHORT' && priceChange > TRADING_THRESHOLD) ||
+        holdTime > HOLD_TIME_MS;
 
-    if (!prev) return;
+    if (shouldExit) {
+        const pnl = pos.side === 'LONG'
+            ? (currentPrice - pos.entryPrice) * 10000
+            : (pos.entryPrice - currentPrice) * 10000;
 
-    const priceChange = (currentPrice - prev) / prev;
+        const trade = {
+            id: `${source === 'goldrush' ? 'gr' : 'cx'}-${Date.now()}`,
+            timestamp: Date.now(),
+            pair: SYMBOL,
+            side: pos.side,
+            entryPrice: pos.entryPrice,
+            exitPrice: currentPrice,
+            pnl: Number(pnl.toFixed(2)),
+            latency: source === 'goldrush' ? 'Live' : `${Date.now() - pos.entryTime}ms`
+        };
 
-    if (codexTrading.position) {
-        const pos = codexTrading.position;
-        const holdTime = Date.now() - pos.entryTime;
+        trading.trades.unshift(trade);
+        if (trading.trades.length > MAX_TRADES) trading.trades.pop();
+        trading.totalPnL += trade.pnl;
+        trading.position = null;
 
-        const shouldExit = (pos.side === 'LONG' && priceChange < -THRESHOLD) ||
-            (pos.side === 'SHORT' && priceChange > THRESHOLD) ||
-            holdTime > 10000;  // Close after 10 seconds max
-
-        if (shouldExit) {
-            const pnl = pos.side === 'LONG'
-                ? (currentPrice - pos.entryPrice) * 10000
-                : (pos.entryPrice - currentPrice) * 10000;
-
-            const trade = {
-                id: `cx-${Date.now()}`,
-                timestamp: Date.now(),
-                pair: SYMBOL,
-                side: pos.side,
-                entryPrice: pos.entryPrice,
-                exitPrice: currentPrice,
-                pnl: Number(pnl.toFixed(2)),
-                latency: `${Date.now() - pos.entryTime}ms`
-            };
-
-            codexTrading.trades.unshift(trade);
-            if (codexTrading.trades.length > 50) codexTrading.trades.pop();
-            codexTrading.totalPnL += trade.pnl;
-            codexTrading.position = null;
-
-            broadcast({ type: 'SLOW_TRADE', data: trade });
-            console.log(`🐢 Codex CLOSED ${pos.side}: PnL $${trade.pnl.toFixed(2)}`);
-        }
-    } else {
-        if (priceChange > THRESHOLD) {
-            codexTrading.position = { side: 'LONG', entryPrice: currentPrice, entryTime: Date.now() };
-            console.log(`🐢 Codex OPENED LONG @ $${currentPrice.toFixed(4)}`);
-        } else if (priceChange < -THRESHOLD) {
-            codexTrading.position = { side: 'SHORT', entryPrice: currentPrice, entryTime: Date.now() };
-            console.log(`🐢 Codex OPENED SHORT @ $${currentPrice.toFixed(4)}`);
-        }
+        const eventType = source === 'goldrush' ? 'FAST_TRADE' : 'SLOW_TRADE';
+        broadcast({ type: eventType, data: trade });
     }
 }
 
-// --- GOLDRUSH: Process OHLCV Candles ---
-async function processGoldrushCandles(candles) {
-    const fastArrival = Date.now();
+function handleEntrySignals(source, trading, currentPrice, priceChange) {
+    if (priceChange > TRADING_THRESHOLD) {
+        trading.position = { side: 'LONG', entryPrice: currentPrice, entryTime: Date.now() };
+    } else if (priceChange < -TRADING_THRESHOLD) {
+        trading.position = { side: 'SHORT', entryPrice: currentPrice, entryTime: Date.now() };
+    }
+}
 
+// ============================================================================
+// GOLDRUSH STREAM
+// ============================================================================
+
+const goldrushClient = new GoldRushClient(
+    process.env.COVALENT_API_KEY,
+    { webSocketImpl: WebSocket },
+    {
+        onOpened: () => console.log('✅ GoldRush Stream Connected'),
+        onClosed: () => console.log('📴 GoldRush Stream Disconnected'),
+        onError: (error) => console.error('❌ GoldRush Error:', error)
+    }
+);
+
+function startGoldrushStream() {
+    goldrushClient.StreamingService.subscribeToOHLCVTokens(
+        {
+            chain_name: StreamingChain.BASE_MAINNET,
+            token_addresses: [TOKEN_ADDRESS],
+            interval: StreamingInterval.ONE_MINUTE,
+            timeframe: StreamingTimeframe.ONE_HOUR
+        },
+        {
+            next: (data) => processGoldrushCandles(Array.isArray(data) ? data : [data]),
+            error: (err) => console.error('❌ GoldRush SDK Error:', err),
+            complete: () => console.log('GoldRush Stream Completed')
+        }
+    );
+}
+
+function processGoldrushCandles(candles) {
     if (!candles || candles.length === 0) return;
 
     const latestCandle = candles[candles.length - 1];
     const price = latestCandle.close || latestCandle.quote_rate_usd;
 
-    const candleTimeMs = new Date(latestCandle.timestamp).getTime();
-    const candleCloseTime = candleTimeMs + 60000;
-    let goldRushLatency = fastArrival - candleCloseTime;
-    if (goldRushLatency < 0) goldRushLatency = 0;
+    state.pairs[SYMBOL].price = price;
+    state.pairs[SYMBOL].fastPrice = price;
 
-    console.log(`\n⚡ GOLDRUSH [STREAM]: $${price} | Candles: ${candles.length} | Latency: ${goldRushLatency}ms`);
-
-    pairs[SYMBOL].price = price;
-    pairs[SYMBOL].fastPrice = price;
-
-    // Accumulate candles
+    // Update candle data
     const newCandles = candles.map(c => ({
         time: Math.floor(new Date(c.timestamp).getTime() / 1000),
         open: c.open,
@@ -206,45 +189,41 @@ async function processGoldrushCandles(candles) {
     }));
 
     const candleMap = new Map();
-    goldrushCandles.forEach(c => candleMap.set(c.time, c));
+    state.goldrush.candles.forEach(c => candleMap.set(c.time, c));
     newCandles.forEach(c => candleMap.set(c.time, c));
 
-    goldrushCandles = Array.from(candleMap.values())
+    state.goldrush.candles = Array.from(candleMap.values())
         .sort((a, b) => a.time - b.time)
-        .slice(-60);
+        .slice(-MAX_CANDLES);
 
-    console.log(`📊 GoldRush accumulated candles: ${goldrushCandles.length}`);
+    // Calculate latency
+    const candleTimeMs = new Date(latestCandle.timestamp).getTime();
+    const latency = Math.max(0, Date.now() - (candleTimeMs + 60000));
 
     broadcast({
         type: 'FAST_TICK',
         data: {
             pair: SYMBOL,
-            price: price,
-            timestamp: fastArrival,
-            latency: goldRushLatency,
-            candles: goldrushCandles
+            price,
+            timestamp: Date.now(),
+            latency,
+            candles: state.goldrush.candles
         }
     });
 
-    // Run INDEPENDENT GoldRush paper trading
-    checkGoldrushTrade(price);
+    executeTrade('goldrush', price);
 }
 
-// --- CODEX POLLING LOOP ---
+// ============================================================================
+// CODEX POLLING
+// ============================================================================
+
 async function startCodexPolling() {
-    console.log("🐢 Starting Codex Polling Loop (1 minute)...");
-
-    // Fetch immediately on startup
-    await fetchCodexPrice();
-
-    // Then poll every minute
-    setInterval(async () => {
-        await fetchCodexPrice();
-    }, 60000);
+    await fetchCodexData();
+    setInterval(fetchCodexData, 60000);
 }
 
-async function fetchCodexPrice() {
-    const startTime = Date.now();
+async function fetchCodexData() {
     try {
         const now = Math.floor(Date.now() / 1000);
         const lookback = now - 900;
@@ -252,16 +231,12 @@ async function fetchCodexPrice() {
         const query = `
             query {
                 getBars(
-                    symbol: "${TOKEN_ADDRESS}:8453"
+                    symbol: "${TOKEN_ADDRESS}:${CHAIN_ID}"
                     from: ${lookback}
                     to: ${now}
                     resolution: "1"
                 ) {
-                    t
-                    o
-                    h
-                    l
-                    c
+                    t o h l c
                 }
             }
         `;
@@ -278,17 +253,15 @@ async function fetchCodexPrice() {
             }
         );
 
-        const endTime = Date.now();
-        const networkLatency = endTime - startTime;
+        const startTime = Date.now();
         const data = response.data?.data?.getBars;
 
         if (data && data.c && data.c.length > 0) {
-            const codexPrice = data.c[data.c.length - 1];
+            const price = data.c[data.c.length - 1];
+            state.pairs[SYMBOL].slowPrice = price;
 
-            pairs[SYMBOL].slowPrice = codexPrice;
-
-            // Format OHLCV candles
-            codexCandles = data.t.map((timestamp, i) => ({
+            // Format candles
+            state.codex.candles = data.t.map((timestamp, i) => ({
                 time: timestamp,
                 open: data.o[i],
                 high: data.h[i],
@@ -300,76 +273,89 @@ async function fetchCodexPrice() {
                 type: 'SLOW_TICK',
                 data: {
                     pair: SYMBOL,
-                    price: codexPrice,
-                    timestamp: endTime,
-                    latency: networkLatency,
-                    candles: codexCandles
+                    price,
+                    timestamp: Date.now(),
+                    latency: Date.now() - startTime,
+                    candles: state.codex.candles
                 }
             });
 
-            // Run INDEPENDENT Codex paper trading
-            checkCodexTrade(codexPrice);
+            executeTrade('codex', price);
         }
-
     } catch (err) {
-        // Silently handle errors
+        // Handle errors silently
     }
 }
 
-// --- GOLDRUSH SDK CLIENT ---
-const goldrushClient = new GoldRushClient(
-    process.env.COVALENT_API_KEY,
-    {
-        webSocketImpl: WebSocket  // Pass ws module for Node.js environment
-    },
-    {
-        onConnecting: () => console.log("🔗 Connecting to GoldRush Stream..."),
-        onOpened: () => console.log("✅ Connected to GoldRush Stream!"),
-        onClosed: () => console.log("📴 GoldRush Stream disconnected"),
-        onError: (error) => console.error("❌ GoldRush Stream error:", error),
+// ============================================================================
+// WEBSOCKET CONNECTION HANDLER
+// ============================================================================
+
+wss.on('connection', (ws) => {
+    state.clients.add(ws);
+
+    // Send initial state
+    ws.send(JSON.stringify({
+        type: 'INIT',
+        data: { pairs: state.pairs, trades: [], ideas: [] }
+    }));
+
+    // Send existing candle data
+    if (state.goldrush.candles.length > 0) {
+        ws.send(JSON.stringify({
+            type: 'FAST_TICK',
+            data: {
+                pair: SYMBOL,
+                price: state.pairs[SYMBOL].fastPrice,
+                timestamp: Date.now(),
+                latency: 0,
+                candles: state.goldrush.candles
+            }
+        }));
     }
-); // v1.0 - Fixed WebSocket implementation for Railway deployment
 
-function startStream() {
-    goldrushClient.StreamingService.subscribeToOHLCVTokens(
-        {
-            chain_name: StreamingChain.BASE_MAINNET,
-            token_addresses: [TOKEN_ADDRESS],
-            interval: StreamingInterval.ONE_MINUTE,
-            timeframe: StreamingTimeframe.ONE_HOUR,
-        },
-        {
-            next: (data) => {
-                const candles = Array.isArray(data) ? data : [data];
-                if (candles && candles.length > 0) {
-                    console.log(`📊 GoldRush SDK Candles Received: ${candles.length}`);
-                    processGoldrushCandles(candles);
-                }
-            },
-            error: (err) => console.error('❌ GoldRush SDK Error:', err),
-            complete: () => console.log('GoldRush Stream Completed'),
-        }
-    );
-}
+    if (state.codex.candles.length > 0) {
+        ws.send(JSON.stringify({
+            type: 'SLOW_TICK',
+            data: {
+                pair: SYMBOL,
+                price: state.pairs[SYMBOL].slowPrice,
+                timestamp: Date.now(),
+                latency: 0,
+                candles: state.codex.candles
+            }
+        }));
+    }
 
-// --- INITIALIZATION ---
-async function init() {
-    console.log("🚀 Server Starting (REAL MODE)...");
+    // Send existing trades
+    state.goldrush.trades.forEach(trade => {
+        ws.send(JSON.stringify({ type: 'FAST_TRADE', data: trade }));
+    });
+    state.codex.trades.forEach(trade => {
+        ws.send(JSON.stringify({ type: 'SLOW_TRADE', data: trade }));
+    });
 
-    // Get Initial Price using Codex
+    ws.on('close', () => state.clients.delete(ws));
+});
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+async function initialize() {
+    console.log('🚀 Starting Trading Bot...');
+
+    // Fetch initial price from Codex
     try {
         const now = Math.floor(Date.now() / 1000);
-        const lookback = now - 900;
         const query = `
             query {
                 getBars(
-                    symbol: "${TOKEN_ADDRESS}:8453"
-                    from: ${lookback}
+                    symbol: "${TOKEN_ADDRESS}:${CHAIN_ID}"
+                    from: ${now - 900}
                     to: ${now}
                     resolution: "1"
-                ) {
-                    c
-                }
+                ) { c }
             }
         `;
 
@@ -388,69 +374,21 @@ async function init() {
         const data = res.data?.data?.getBars;
         const initialPrice = (data && data.c && data.c.length > 0) ? data.c[data.c.length - 1] : 0;
 
-        pairs[SYMBOL].price = initialPrice;
-        pairs[SYMBOL].fastPrice = initialPrice;
-        pairs[SYMBOL].slowPrice = initialPrice;
-        console.log(`✅ Initial Price Snapshot: $${initialPrice}`);
+        state.pairs[SYMBOL].price = initialPrice;
+        state.pairs[SYMBOL].fastPrice = initialPrice;
+        state.pairs[SYMBOL].slowPrice = initialPrice;
+
+        console.log(`✅ Initial Price: $${initialPrice}`);
     } catch (err) {
-        console.log("⚠️ Could not fetch initial price:", err.message);
+        console.log('⚠️ Could not fetch initial price');
     }
 
-    // Start HTTP server FIRST (so healthcheck passes immediately)
+    // Start server first, then connect streams
     server.listen(PORT, '0.0.0.0', () => {
-        console.log(`✅ Backend listening on http://0.0.0.0:${PORT}`);
-
-        // Then connect to streams after server is ready
-        startStream();
+        console.log(`✅ Server listening on http://0.0.0.0:${PORT}`);
+        startGoldrushStream();
         startCodexPolling();
     });
 }
 
-// --- WS CONNECTION HANDLING ---
-wss.on('connection', (ws) => {
-    clients.add(ws);
-
-    ws.send(JSON.stringify({
-        type: 'INIT',
-        data: { pairs, trades: [], ideas: [] }
-    }));
-
-    // Send existing candle data
-    if (goldrushCandles.length > 0) {
-        ws.send(JSON.stringify({
-            type: 'FAST_TICK',
-            data: {
-                pair: SYMBOL,
-                price: pairs[SYMBOL].fastPrice,
-                timestamp: Date.now(),
-                latency: 0,
-                candles: goldrushCandles
-            }
-        }));
-    }
-
-    if (codexCandles.length > 0) {
-        ws.send(JSON.stringify({
-            type: 'SLOW_TICK',
-            data: {
-                pair: SYMBOL,
-                price: pairs[SYMBOL].slowPrice,
-                timestamp: Date.now(),
-                latency: 0,
-                candles: codexCandles
-            }
-        }));
-    }
-
-    // Send existing trades
-    goldrushTrading.trades.forEach(trade => {
-        ws.send(JSON.stringify({ type: 'FAST_TRADE', data: trade }));
-    });
-    codexTrading.trades.forEach(trade => {
-        ws.send(JSON.stringify({ type: 'SLOW_TRADE', data: trade }));
-    });
-
-    ws.on('close', () => clients.delete(ws));
-});
-
-init();
+initialize();
