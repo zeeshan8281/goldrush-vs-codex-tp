@@ -7,7 +7,7 @@ const { GoldRushClient, StreamingChain, StreamingInterval, StreamingTimeframe } 
 require('dotenv').config();
 
 // --- CONFIGURATION ---
-const PORT = 3002;
+const PORT = process.env.PORT || 3002;
 const SYMBOL = 'VIRTUAL-USD';
 const TOKEN_ADDRESS = '0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b';
 
