@@ -51,7 +51,8 @@ app.use(cors());
 
 // Health check endpoint for Railway
 app.get('/', (req, res) => {
-    res.json({ status: 'ok', service: 'GoldRush vs Codex Trading Bot' });
+    console.log('✅ Health check hit');
+    res.status(200).json({ status: 'ok', service: 'GoldRush vs Codex Trading Bot', timestamp: new Date().toISOString() });
 });
 app.use(express.json());
 const server = http.createServer(app);
