@@ -161,7 +161,7 @@ function App() {
               <Zap className="w-5 h-5 text-primary" />
             </div>
             <h1 className="font-bold text-xl tracking-tight">
-              Rush <span className="text-muted-foreground">&</span> Codex
+              GoldRush <span className="text-muted-foreground">&</span> Codex
               <span className="ml-3 text-xs font-mono bg-white/5 px-2 py-1 rounded text-primary">TP SIMULATOR</span>
               <span className="ml-2 text-xs font-mono bg-purple-500/20 px-2 py-1 rounded text-purple-400 border border-purple-500/30">VIRTUAL-USD</span>
             </h1>
