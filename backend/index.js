@@ -328,7 +328,7 @@ const goldrushClient = new GoldRushClient(
         onClosed: () => console.log("📴 GoldRush Stream disconnected"),
         onError: (error) => console.error("❌ GoldRush Stream error:", error),
     }
-);
+); // v1.0 - Fixed WebSocket implementation for Railway deployment
 
 function startStream() {
     goldrushClient.StreamingService.subscribeToOHLCVTokens(
