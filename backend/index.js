@@ -393,11 +393,13 @@ async function init() {
         console.log("⚠️ Could not fetch initial price:", err.message);
     }
 
-    startStream();
-    startCodexPolling();
-
+    // Start HTTP server FIRST (so healthcheck passes immediately)
     server.listen(PORT, '0.0.0.0', () => {
         console.log(`✅ Backend listening on http://0.0.0.0:${PORT}`);
+
+        // Then connect to streams after server is ready
+        startStream();
+        startCodexPolling();
     });
 }
 
