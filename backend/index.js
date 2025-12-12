@@ -319,7 +319,9 @@ async function fetchCodexPrice() {
 // --- GOLDRUSH SDK CLIENT ---
 const goldrushClient = new GoldRushClient(
     process.env.COVALENT_API_KEY,
-    {},
+    {
+        webSocketImpl: WebSocket  // Pass ws module for Node.js environment
+    },
     {
         onConnecting: () => console.log("🔗 Connecting to GoldRush Stream..."),
         onOpened: () => console.log("✅ Connected to GoldRush Stream!"),
