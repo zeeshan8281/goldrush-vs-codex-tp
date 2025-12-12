@@ -1,17 +1,16 @@
 {
+    "$schema": "https://nixpacks.com/schema.json",
     "phases": {
         "setup": {
             "nixPkgs": [
-                "nodejs_20"
-            ]
+                "nodejs-20_x"
+            ],
+            "nixLibs": []
         },
         "install": {
             "cmds": [
-                "npm ci"
+                "npm ci --production"
             ]
-        },
-        "build": {
-            "cmds": []
         }
     },
     "start": {
