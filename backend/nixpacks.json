@@ -3,7 +3,7 @@
     "phases": {
         "setup": {
             "nixPkgs": [
-                "nodejs-20_x"
+                "nodejs_20"
             ],
             "nixLibs": []
         },
