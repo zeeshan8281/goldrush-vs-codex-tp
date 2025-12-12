@@ -7,8 +7,8 @@ function App() {
   const [connected, setConnected] = useState(false);
 
   const [marketState, setMarketState] = useState({
-    goldrush: { ticks: {}, trades: [] },
-    codex: { ticks: {}, trades: [] },
+    goldrush: { ticks: {}, trades: [], logs: [] },
+    codex: { ticks: {}, trades: [], logs: [] },
     ticks: {},
     trades: [],
     ideas: []
@@ -74,49 +74,81 @@ function App() {
         break;
 
       case 'FAST_TICK':
-        setMarketState(prev => ({
-          ...prev,
-          goldrush: {
-            ...prev.goldrush,
-            ticks: {
-              ...prev.goldrush.ticks,
-              [msg.data.pair]: msg.data
+        setMarketState(prev => {
+          const newLog = {
+            time: new Date().toLocaleTimeString(),
+            type: 'TICK',
+            message: `$${msg.data.price?.toFixed(6)} | ${msg.data.candles?.length || 0} candles`
+          };
+          return {
+            ...prev,
+            goldrush: {
+              ...prev.goldrush,
+              ticks: {
+                ...prev.goldrush.ticks,
+                [msg.data.pair]: msg.data
+              },
+              logs: [...prev.goldrush.logs, newLog].slice(-50)
             }
-          }
-        }));
+          };
+        });
         break;
 
       case 'SLOW_TICK':
-        setMarketState(prev => ({
-          ...prev,
-          codex: {
-            ...prev.codex,
-            ticks: {
-              ...prev.codex.ticks,
-              [msg.data.pair]: msg.data
+        setMarketState(prev => {
+          const newLog = {
+            time: new Date().toLocaleTimeString(),
+            type: 'TICK',
+            message: `$${msg.data.price?.toFixed(6)} | ${msg.data.candles?.length || 0} candles | ${msg.data.latency}ms`
+          };
+          return {
+            ...prev,
+            codex: {
+              ...prev.codex,
+              ticks: {
+                ...prev.codex.ticks,
+                [msg.data.pair]: msg.data
+              },
+              logs: [...prev.codex.logs, newLog].slice(-50)
             }
-          }
-        }));
+          };
+        });
         break;
 
       case 'FAST_TRADE':
-        setMarketState(prev => ({
-          ...prev,
-          goldrush: {
-            ...prev.goldrush,
-            trades: [msg.data, ...prev.goldrush.trades].slice(0, 50)
-          }
-        }));
+        setMarketState(prev => {
+          const newLog = {
+            time: new Date().toLocaleTimeString(),
+            type: 'TRADE',
+            message: `${msg.data.side} | Entry $${msg.data.entryPrice?.toFixed(4)} → Exit $${msg.data.exitPrice?.toFixed(4)} | PnL ${msg.data.pnl >= 0 ? '+' : ''}$${msg.data.pnl?.toFixed(2)}`
+          };
+          return {
+            ...prev,
+            goldrush: {
+              ...prev.goldrush,
+              trades: [msg.data, ...prev.goldrush.trades].slice(0, 50),
+              logs: [...prev.goldrush.logs, newLog].slice(-50)
+            }
+          };
+        });
         break;
 
       case 'SLOW_TRADE':
-        setMarketState(prev => ({
-          ...prev,
-          codex: {
-            ...prev.codex,
-            trades: [msg.data, ...prev.codex.trades].slice(0, 50)
-          }
-        }));
+        setMarketState(prev => {
+          const newLog = {
+            time: new Date().toLocaleTimeString(),
+            type: 'TRADE',
+            message: `${msg.data.side} | Entry $${msg.data.entryPrice?.toFixed(4)} → Exit $${msg.data.exitPrice?.toFixed(4)} | PnL ${msg.data.pnl >= 0 ? '+' : ''}$${msg.data.pnl?.toFixed(2)}`
+          };
+          return {
+            ...prev,
+            codex: {
+              ...prev.codex,
+              trades: [msg.data, ...prev.codex.trades].slice(0, 50),
+              logs: [...prev.codex.logs, newLog].slice(-50)
+            }
+          };
+        });
         break;
 
       case 'TICK': // Legacy fallback
