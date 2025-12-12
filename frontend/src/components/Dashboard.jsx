@@ -9,6 +9,10 @@ export default function Dashboard({ state }) {
     const goldrushTick = state.goldrush.ticks[activePair];
     const codexTick = state.codex.ticks[activePair];
 
+    // Extract candles arrays for charts
+    const goldrushCandles = goldrushTick?.candles || [];
+    const codexCandles = codexTick?.candles || [];
+
     // Calculate Totals
     const totalGoldRushPnL = state.goldrush.trades.reduce((acc, t) => acc + (Number(t.pnl) || 0), 0);
     const totalCodexPnL = state.codex.trades.reduce((acc, t) => acc + (Number(t.pnl) || 0), 0);
@@ -22,14 +26,14 @@ export default function Dashboard({ state }) {
 
                 {/* 1. TOP: CHART (Strict 60% Height) */}
                 <div className="glass-card rounded-xl border-2 border-primary/20 shadow-[0_0_50px_rgba(74,222,128,0.1)] relative overflow-hidden">
-                    {/* Header Overlay */}
-                    <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 pointer-events-none">
+                    {/* Header Overlay with background */}
+                    <div className="absolute top-0 left-0 right-0 z-20 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none">
                         <div className="flex items-center gap-2">
                             <Zap className="w-5 h-5 text-yellow-400" />
                             <h2 className="text-primary font-bold text-lg tracking-wide">GOLDRUSH API</h2>
                             <span className="bg-primary/20 text-primary text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LIVE STREAM</span>
                         </div>
-                        <div className="flex items-baseline gap-3">
+                        <div className="flex items-baseline gap-3 mt-1">
                             <div className="text-3xl font-mono font-light text-white">
                                 ${goldrushTick?.price?.toFixed(4) || '0.0000'}
                             </div>
@@ -41,7 +45,7 @@ export default function Dashboard({ state }) {
 
                     {/* Chart Canvas Container - Absolute to fill parent exactly */}
                     <div className="absolute inset-0 top-0 w-full h-full z-10">
-                        <Chart data={goldrushTick} color="#22c55e" />
+                        <Chart candles={goldrushCandles} color="#22c55e" />
                     </div>
                 </div>
 
@@ -59,14 +63,14 @@ export default function Dashboard({ state }) {
 
                 {/* 1. TOP: CHART (Strict 60% Height) */}
                 <div className="glass-card rounded-xl border-2 border-white/5 opacity-80 relative overflow-hidden">
-                    {/* Header Overlay */}
-                    <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 pointer-events-none">
+                    {/* Header Overlay with background */}
+                    <div className="absolute top-0 left-0 right-0 z-20 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none">
                         <div className="flex items-center gap-2">
                             <Database className="w-5 h-5 text-gray-400" />
                             <h2 className="text-muted-foreground font-bold text-lg tracking-wide">CODEX API</h2>
                             <span className="bg-white/10 text-muted-foreground text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LATENCY: {codexTick?.latency || '...'}ms</span>
                         </div>
-                        <div className="flex items-baseline gap-3">
+                        <div className="flex items-baseline gap-3 mt-1">
                             <div className="text-3xl font-mono font-light text-muted-foreground">
                                 ${codexTick?.price?.toFixed(4) || '0.0000'}
                             </div>
@@ -78,7 +82,7 @@ export default function Dashboard({ state }) {
 
                     {/* Chart Canvas Container */}
                     <div className="absolute inset-0 top-0 w-full h-full z-10">
-                        <Chart data={codexTick} color="#6366f1" />
+                        <Chart candles={codexCandles} color="#6366f1" />
                     </div>
                 </div>
 

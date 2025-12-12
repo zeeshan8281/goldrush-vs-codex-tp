@@ -1,115 +1,161 @@
-import React, { useEffect, useRef, memo } from 'react';
+import { useEffect, useRef } from 'react';
 import { createChart, ColorType } from 'lightweight-charts';
 
-/**
- * Reusable Chart Component for real-time price visualization
- * @param {Object} data - { price: number, timestamp: number (ms) }
- * @param {string} color - Primary color for the chart line (default: green)
- */
-function Chart({ data, color = '#22c55e' }) {
-    const containerRef = useRef(null);
+export default function Chart({ candles = [], color = '#22c55e' }) {
+    const chartContainerRef = useRef(null);
     const chartRef = useRef(null);
     const seriesRef = useRef(null);
-    const lastTimeRef = useRef(0);
 
-    // Initialize chart ONCE on mount
+    // Initialize chart
     useEffect(() => {
-        if (!containerRef.current) return;
+        if (!chartContainerRef.current) return;
 
-        // Create chart instance
-        const chart = createChart(containerRef.current, {
+        const chart = createChart(chartContainerRef.current, {
             layout: {
                 background: { type: ColorType.Solid, color: 'transparent' },
-                textColor: '#9CA3AF',
+                textColor: 'rgba(255, 255, 255, 0.7)',
+                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
             },
             grid: {
                 vertLines: { color: 'rgba(255, 255, 255, 0.03)' },
                 horzLines: { color: 'rgba(255, 255, 255, 0.03)' },
             },
-            width: containerRef.current.clientWidth,
-            height: containerRef.current.clientHeight,
-            timeScale: {
-                timeVisible: true,
-                secondsVisible: true,
-                borderColor: 'rgba(255, 255, 255, 0.1)',
+            crosshair: {
+                mode: 0,
+                vertLine: {
+                    color: 'rgba(255, 255, 255, 0.2)',
+                    width: 1,
+                    style: 2,
+                    labelBackgroundColor: color,
+                },
+                horzLine: {
+                    color: 'rgba(255, 255, 255, 0.2)',
+                    width: 1,
+                    style: 2,
+                    labelBackgroundColor: color,
+                },
             },
             rightPriceScale: {
                 borderColor: 'rgba(255, 255, 255, 0.1)',
-                scaleMargins: { top: 0.1, bottom: 0.1 },
+                scaleMargins: {
+                    top: 0.35,  // Leave room for header overlay
+                    bottom: 0.1,
+                },
             },
-            crosshair: {
-                mode: 1,
-                vertLine: { labelBackgroundColor: color },
-                horzLine: { labelBackgroundColor: color },
+            timeScale: {
+                borderColor: 'rgba(255, 255, 255, 0.1)',
+                timeVisible: true,
+                secondsVisible: false,
+                rightOffset: 3,
+                barSpacing: 10,
+                minBarSpacing: 5,
+            },
+            handleScale: {
+                axisPressedMouseMove: true,
+            },
+            handleScroll: {
+                mouseWheel: true,
+                pressedMouseMove: true,
             },
         });
 
-        // Create area series
-        const series = chart.addAreaSeries({
-            lineColor: color,
-            topColor: `${color}66`,
-            bottomColor: `${color}00`,
-            lineWidth: 2,
+        // Determine colors based on the color prop
+        const isGreen = color === '#22c55e';
+        const upColor = isGreen ? '#22c55e' : '#6366f1';
+        const downColor = isGreen ? '#ef4444' : '#ec4899';
+
+        const candlestickSeries = chart.addCandlestickSeries({
+            upColor: upColor,
+            downColor: downColor,
+            borderVisible: false,
+            wickUpColor: upColor,
+            wickDownColor: downColor,
             priceFormat: {
                 type: 'price',
-                precision: 8,
-                minMove: 0.00000001,
+                precision: 6,
+                minMove: 0.000001,
             },
         });
 
         chartRef.current = chart;
-        seriesRef.current = series;
+        seriesRef.current = candlestickSeries;
 
         // Handle resize
-        const resizeObserver = new ResizeObserver((entries) => {
-            if (!entries[0]) return;
-            const { width, height } = entries[0].contentRect;
-            if (width > 0 && height > 0) {
-                chart.applyOptions({ width, height });
+        const handleResize = () => {
+            if (chartContainerRef.current && chartRef.current) {
+                chartRef.current.applyOptions({
+                    width: chartContainerRef.current.clientWidth,
+                    height: chartContainerRef.current.clientHeight,
+                });
             }
-        });
-        resizeObserver.observe(containerRef.current);
+        };
 
-        // Cleanup
+        handleResize();
+
+        const resizeObserver = new ResizeObserver(handleResize);
+        resizeObserver.observe(chartContainerRef.current);
+
         return () => {
             resizeObserver.disconnect();
-            chart.remove();
-            chartRef.current = null;
-            seriesRef.current = null;
+            if (chartRef.current) {
+                chartRef.current.remove();
+                chartRef.current = null;
+                seriesRef.current = null;
+            }
         };
     }, [color]);
 
-    // Update chart when data changes
+    // Update candle data
     useEffect(() => {
-        if (!seriesRef.current || !data) return;
+        console.log('📊 Chart useEffect - candles:', candles?.length, 'seriesRef:', !!seriesRef.current);
 
-        const { price, timestamp } = data;
-        if (typeof price !== 'number' || typeof timestamp !== 'number') return;
-        if (isNaN(price) || isNaN(timestamp)) return;
-
-        const timeInSeconds = Math.floor(timestamp / 1000);
-
-        // Skip if time hasn't advanced (avoid duplicate errors)
-        if (timeInSeconds < lastTimeRef.current) return;
-
-        try {
-            seriesRef.current.update({
-                time: timeInSeconds,
-                value: price,
-            });
-            lastTimeRef.current = timeInSeconds;
-        } catch (err) {
-            // Silently ignore lightweight-charts errors (duplicates, etc.)
+        if (!seriesRef.current) {
+            console.log('❌ Chart: seriesRef is null');
+            return;
         }
-    }, [data]);
+        if (!candles || candles.length === 0) {
+            console.log('❌ Chart: No candles data');
+            return;
+        }
+
+        console.log('📊 Raw candles sample:', candles[0]);
+
+        // Format candles for lightweight-charts
+        const formattedData = candles
+            .map(candle => ({
+                time: typeof candle.time === 'number'
+                    ? candle.time
+                    : Math.floor(new Date(candle.timestamp || candle.time).getTime() / 1000),
+                open: candle.open,
+                high: candle.high,
+                low: candle.low,
+                close: candle.close,
+            }))
+            .filter(c => c.open && c.high && c.low && c.close) // Filter out invalid candles
+            .sort((a, b) => a.time - b.time);
+
+        // Remove duplicates by time
+        const uniqueData = formattedData.filter((v, i, a) =>
+            a.findIndex(t => t.time === v.time) === i
+        );
+
+        console.log('📊 Formatted candles:', uniqueData.length, 'sample:', uniqueData[0]);
+
+        if (uniqueData.length > 0) {
+            seriesRef.current.setData(uniqueData);
+            chartRef.current?.timeScale().fitContent();
+            console.log('✅ Chart: Data set successfully');
+        }
+    }, [candles]);
 
     return (
         <div
-            ref={containerRef}
+            ref={chartContainerRef}
             className="w-full h-full"
-            style={{ minHeight: '200px' }}
+            style={{
+                minHeight: '200px',
+                position: 'relative',
+            }}
         />
     );
 }
-
-export default memo(Chart);
