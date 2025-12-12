@@ -396,8 +396,8 @@ async function init() {
     startStream();
     startCodexPolling();
 
-    server.listen(PORT, () => {
-        console.log(`✅ Backend listening on http://localhost:${PORT}`);
+    server.listen(PORT, '0.0.0.0', () => {
+        console.log(`✅ Backend listening on http://0.0.0.0:${PORT}`);
     });
 }
 
