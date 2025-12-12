@@ -1,4 +1,6 @@
-export default function TradeList({ trades, mode = 'fast' }) {
+export default function TradeList({ trades, mode = 'fast', totalPnL = 0 }) {
+    const isPositive = totalPnL >= 0;
+
     return (
         <div className="flex flex-col h-full min-h-0">
             <div className="p-3 border-b border-white/5 bg-black/40 backdrop-blur flex justify-between items-center shrink-0">
@@ -9,7 +11,16 @@ export default function TradeList({ trades, mode = 'fast' }) {
                         <><span>🐢</span> Codex Executions</>
                     )}
                 </h3>
-                <span className="text-xs text-muted-foreground bg-white/5 px-2 py-0.5 rounded-full">{trades.length} Trades</span>
+                <div className="flex items-center gap-3">
+                    {/* Cumulative PnL in header */}
+                    <span className={`text-sm font-bold font-mono px-2 py-0.5 rounded ${isPositive ? 'text-green-400 bg-green-500/10' : 'text-red-400 bg-red-500/10'
+                        }`}>
+                        Σ {isPositive ? '+' : ''}${totalPnL.toFixed(2)}
+                    </span>
+                    <span className="text-xs text-muted-foreground bg-white/5 px-2 py-0.5 rounded-full">
+                        {trades.length} Trades
+                    </span>
+                </div>
             </div>
 
             <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
@@ -25,8 +36,11 @@ export default function TradeList({ trades, mode = 'fast' }) {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5 text-xs">
-                        {trades.map((trade) => {
+                        {trades.map((trade, index) => {
                             const isWin = Number(trade.pnl) > 0;
+                            // Calculate running cumulative PnL up to this trade
+                            const runningPnL = trades.slice(0, index + 1).reduce((acc, t) => acc + (Number(t.pnl) || 0), 0);
+
                             return (
                                 <tr key={trade.id} className="hover:bg-white/5 transition-colors group">
                                     <td className="p-3 font-mono text-muted-foreground opacity-70 group-hover:opacity-100">
@@ -41,7 +55,7 @@ export default function TradeList({ trades, mode = 'fast' }) {
                                     <td className="p-3 font-mono opacity-80">
                                         ${Number(trade.exitPrice).toFixed(4)}
                                     </td>
-                                    <td className={`p-3 font-mono ${mode === 'fast' ? 'text-yellow-400' : 'text-red-400'}`}>
+                                    <td className={`p-3 font-mono ${mode === 'fast' ? 'text-yellow-400' : 'text-purple-400'}`}>
                                         {trade.latency || 'N/A'}
                                     </td>
                                     <td className={`p-3 font-mono font-bold ${isWin ? 'text-green-400' : 'text-red-400'}`}>
