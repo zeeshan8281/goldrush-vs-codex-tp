@@ -6,13 +6,7 @@ A real-time trading paper simulator that compares **GoldRush Streaming API** aga
 
 ## 🎯 What This Does
 
-This proof-of-concept runs **identical trading algorithms** on two different data sources to compare:
-
-| GoldRush | Codex |
-|----------|-------|
-| Real-time WebSocket streaming | REST API polling (1 min) |
-| OHLCV candle updates | OHLCV bar data |
-| @covalenthq/client-sdk | GraphQL queries |
+This proof-of-concept runs **identical trading algorithms** on two different data sources to compare: GoldRush and Codex
 
 Both APIs feed into the **same momentum-based paper trading strategy**, allowing you to compare PnL outcomes based on data delivery speed and reliability.
 
