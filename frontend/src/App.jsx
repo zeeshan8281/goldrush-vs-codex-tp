@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Zap } from 'lucide-react';
 import Dashboard from './components/Dashboard';
+import TokenSelector from './components/TokenSelector';
 
 function App() {
   const [socket, setSocket] = useState(null);
@@ -13,6 +14,9 @@ function App() {
     trades: [],
     ideas: []
   });
+
+  // Derive current symbol from ticks (first key) or fallback to 'BONK'
+  const currentSymbol = Object.keys(marketState.ticks)[0] || 'BONK';
 
   const connectWebSocket = () => {
     // Use environment variable for deployment, fallback to localhost for dev
@@ -178,6 +182,17 @@ function App() {
           trades: prev.trades.map(t => t.id === msg.data.id ? msg.data : t)
         }));
         break;
+      case 'RESET':
+        // Clear everything on reset
+        setMarketState({
+          goldrush: { ticks: {}, trades: [], logs: [] },
+          codex: { ticks: {}, trades: [], logs: [] },
+          ticks: {},
+          trades: [],
+          ideas: []
+        });
+        console.log("♻️ State Reset for new token:", msg.data.pair);
+        break;
       default:
         break;
     }
@@ -195,8 +210,9 @@ function App() {
             <h1 className="font-bold text-xl tracking-tight">
               GoldRush <span className="text-muted-foreground">&</span> Codex
               <span className="ml-3 text-xs font-mono bg-white/5 px-2 py-1 rounded text-primary">TP SIMULATOR</span>
-              <span className="ml-2 text-xs font-mono bg-purple-500/20 px-2 py-1 rounded text-purple-400 border border-purple-500/30">BONK (Solana)</span>
+              <span className="ml-2 text-xs font-mono bg-purple-500/20 px-2 py-1 rounded text-purple-400 border border-purple-500/30">{currentSymbol} (Solana)</span>
             </h1>
+            <TokenSelector />
           </div>
 
           <div className="flex items-center gap-4">

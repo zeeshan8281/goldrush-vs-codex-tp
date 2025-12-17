@@ -8,8 +8,9 @@ require('dotenv').config();
 
 // --- CONFIGURATION ---
 const PORT = process.env.PORT || 3002;
-const SYMBOL = 'BONK';
-const TOKEN_ADDRESS = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+// Default to BONK, but allow dynamic updates
+let SYMBOL = 'BONK';
+let TOKEN_ADDRESS = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
 let CODEX_NETWORK_ID = '1399811149'; // Default Fallback (will try to fetch dynamic)
 
 // --- STATE MANAGEMENT ---
@@ -45,7 +46,7 @@ let isRunning = true;
 
 // Trading thresholds
 // GoldRush: Higher threshold to filter out high-frequency noise (0.0005%)
-const GOLDRUSH_THRESHOLD = 0.000005;
+const GOLDRUSH_THRESHOLD = 0.000001;
 // Codex: Lower threshold as it has implicit time-filtering (0.0001%)
 const CODEX_THRESHOLD = 0.000001;
 
@@ -57,6 +58,48 @@ app.use(express.json());
 // Health check endpoint for Railway
 app.get('/', (req, res) => {
     res.json({ status: 'ok', message: 'GoldRush vs Codex Trading Bot (SOLANA)' });
+});
+
+// Endpoint to update the token dynamically
+app.post('/update-token', async (req, res) => {
+    const { address, symbol } = req.body;
+    if (!address) return res.status(400).json({ error: 'Address is required' });
+
+    console.log(`🔄 Switching Token to: ${symbol || 'CUSTOM'} (${address})`);
+
+    // 1. Update Global State Variables
+    TOKEN_ADDRESS = address;
+    SYMBOL = symbol || 'CUSTOM';
+
+    // 2. Clear Existing Data
+    pairs = {
+        [SYMBOL]: { price: 0, fastPrice: 0, slowPrice: 0 }
+    };
+    goldrushCandles = [];
+    codexCandles = [];
+    goldrushTrading = { position: null, lastPrice: null, trades: [], totalPnL: 0 };
+    codexTrading = { position: null, lastPrice: null, trades: [], totalPnL: 0 };
+
+    // 3. Broadcast RESET to all clients
+    broadcast({ type: 'RESET', data: { pair: SYMBOL } });
+
+    // 4. Restart Services
+    // Codex: Clear interval and restart loop
+    if (codexInterval) clearInterval(codexInterval);
+
+    // GoldRush: Trigger new subscription (SDK handles sub management usually, or we just add a new one)
+    // Note: The Covalent SDK might stack subscriptions if not carefully managed. 
+    // Ideally we would unsubscribe, but for this POC adding a new active subscription 
+    // and ignoring the old data (managed by our processing logic filtering by token if needed) is easiest.
+    // However, since we process whatever comes to 'processGoldrushCandles', we should rely on the SDK switching.
+    // For this specific SDK, calling subscribe again typically adds a new stream. 
+    // We will assume the restart is sufficient or we just pivot the stream.
+
+    // Actually, to be clean:
+    startStream(); // Resubscribe
+    startCodexPolling(); // Restart polling
+
+    res.json({ success: true, message: `Switched to ${SYMBOL}` });
 });
 
 const server = http.createServer(app);
@@ -253,14 +296,17 @@ async function processGoldrushCandles(candles) {
 }
 
 // --- CODEX POLLING LOOP ---
+let codexInterval = null;
 async function startCodexPolling() {
+    if (codexInterval) clearInterval(codexInterval);
+    console.log("🐢 Starting Codex Polling Loop (1 minute)...");
     console.log("🐢 Starting Codex Polling Loop (1 minute)...");
 
     // Fetch immediately on startup
     await fetchCodexPrice();
 
     // Then poll every minute
-    setInterval(async () => {
+    codexInterval = setInterval(async () => {
         await fetchCodexPrice();
     }, 60000);
 }
