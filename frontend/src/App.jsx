@@ -82,7 +82,7 @@ function App() {
           const newLog = {
             time: new Date().toLocaleTimeString(),
             type: 'TICK',
-            message: `$${msg.data.price?.toFixed(6)} | ${msg.data.candles?.length || 0} candles`
+            message: `$${msg.data.price?.toFixed(6)} | ${msg.data.candles?.length || 0} candles | ${msg.data.latency}ms`
           };
           return {
             ...prev,

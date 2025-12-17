@@ -419,7 +419,7 @@ function processCodexUpdate(barData) {
             pair: SYMBOL,
             price: codexPrice,
             timestamp: Date.now(),
-            latency: 'Live (Raw)', // Reverted to raw status
+            latency: latency, // Numeric Latency (calculated above)
             candles: codexCandles
         }
     });
