@@ -120,7 +120,7 @@ function App() {
           const newLog = {
             time: new Date().toLocaleTimeString(),
             type: 'TRADE',
-            message: `${msg.data.side} | Entry $${msg.data.entryPrice?.toFixed(4)} → Exit $${msg.data.exitPrice?.toFixed(4)} | PnL ${msg.data.pnl >= 0 ? '+' : ''}$${msg.data.pnl?.toFixed(2)}`
+            message: `${msg.data.side} | Entry $${msg.data.entryPrice?.toFixed(8)} → Exit $${msg.data.exitPrice?.toFixed(8)} | PnL ${msg.data.pnl >= 0 ? '+' : ''}$${msg.data.pnl?.toFixed(2)}`
           };
           return {
             ...prev,
@@ -138,7 +138,7 @@ function App() {
           const newLog = {
             time: new Date().toLocaleTimeString(),
             type: 'TRADE',
-            message: `${msg.data.side} | Entry $${msg.data.entryPrice?.toFixed(4)} → Exit $${msg.data.exitPrice?.toFixed(4)} | PnL ${msg.data.pnl >= 0 ? '+' : ''}$${msg.data.pnl?.toFixed(2)}`
+            message: `${msg.data.side} | Entry $${msg.data.entryPrice?.toFixed(8)} → Exit $${msg.data.exitPrice?.toFixed(8)} | PnL ${msg.data.pnl >= 0 ? '+' : ''}$${msg.data.pnl?.toFixed(2)}`
           };
           return {
             ...prev,
@@ -195,7 +195,7 @@ function App() {
             <h1 className="font-bold text-xl tracking-tight">
               GoldRush <span className="text-muted-foreground">&</span> Codex
               <span className="ml-3 text-xs font-mono bg-white/5 px-2 py-1 rounded text-primary">TP SIMULATOR</span>
-              <span className="ml-2 text-xs font-mono bg-purple-500/20 px-2 py-1 rounded text-purple-400 border border-purple-500/30">VIRTUAL-USD</span>
+              <span className="ml-2 text-xs font-mono bg-purple-500/20 px-2 py-1 rounded text-purple-400 border border-purple-500/30">BONK (Solana)</span>
             </h1>
           </div>
 

@@ -8,8 +8,9 @@ require('dotenv').config();
 
 // --- CONFIGURATION ---
 const PORT = process.env.PORT || 3002;
-const SYMBOL = 'VIRTUAL-USD';
-const TOKEN_ADDRESS = '0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b';
+const SYMBOL = 'BONK';
+const TOKEN_ADDRESS = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+let CODEX_NETWORK_ID = '1399811149'; // Default Fallback (will try to fetch dynamic)
 
 // --- STATE MANAGEMENT ---
 let pairs = {
@@ -42,8 +43,11 @@ let codexTrading = {
 let clients = new Set();
 let isRunning = true;
 
-// Trading threshold: 0.01% price change to trigger (lowered for demo)
-const THRESHOLD = 0.0001;
+// Trading thresholds
+// GoldRush: Higher threshold to filter out high-frequency noise (0.0005%)
+const GOLDRUSH_THRESHOLD = 0.000005;
+// Codex: Lower threshold as it has implicit time-filtering (0.0001%)
+const CODEX_THRESHOLD = 0.000001;
 
 // --- SERVER SETUP ---
 const app = express();
@@ -52,7 +56,7 @@ app.use(express.json());
 
 // Health check endpoint for Railway
 app.get('/', (req, res) => {
-    res.json({ status: 'ok', message: 'GoldRush vs Codex Trading Bot' });
+    res.json({ status: 'ok', message: 'GoldRush vs Codex Trading Bot (SOLANA)' });
 });
 
 const server = http.createServer(app);
@@ -84,14 +88,14 @@ function checkGoldrushTrade(currentPrice) {
         const pos = goldrushTrading.position;
         const holdTime = Date.now() - pos.entryTime;
 
-        const shouldExit = (pos.side === 'LONG' && priceChange < -THRESHOLD) ||
-            (pos.side === 'SHORT' && priceChange > THRESHOLD) ||
+        const shouldExit = (pos.side === 'LONG' && priceChange < -GOLDRUSH_THRESHOLD) ||
+            (pos.side === 'SHORT' && priceChange > GOLDRUSH_THRESHOLD) ||
             holdTime > 10000;  // Close after 10 seconds max
 
         if (shouldExit) {
             const pnl = pos.side === 'LONG'
-                ? (currentPrice - pos.entryPrice) * 10000
-                : (pos.entryPrice - currentPrice) * 10000;
+                ? (currentPrice - pos.entryPrice) * 100000000
+                : (pos.entryPrice - currentPrice) * 100000000;
 
             const trade = {
                 id: `gr-${Date.now()}`,
@@ -113,12 +117,12 @@ function checkGoldrushTrade(currentPrice) {
             console.log(`📈 GoldRush CLOSED ${pos.side}: PnL $${trade.pnl.toFixed(2)}`);
         }
     } else {
-        if (priceChange > THRESHOLD) {
+        if (priceChange > GOLDRUSH_THRESHOLD) {
             goldrushTrading.position = { side: 'LONG', entryPrice: currentPrice, entryTime: Date.now() };
-            console.log(`📈 GoldRush OPENED LONG @ $${currentPrice.toFixed(4)}`);
-        } else if (priceChange < -THRESHOLD) {
+            console.log(`📈 GoldRush OPENED LONG @ $${currentPrice.toFixed(6)}`);
+        } else if (priceChange < -GOLDRUSH_THRESHOLD) {
             goldrushTrading.position = { side: 'SHORT', entryPrice: currentPrice, entryTime: Date.now() };
-            console.log(`📉 GoldRush OPENED SHORT @ $${currentPrice.toFixed(4)}`);
+            console.log(`📉 GoldRush OPENED SHORT @ $${currentPrice.toFixed(6)}`);
         }
     }
 }
@@ -138,14 +142,14 @@ function checkCodexTrade(currentPrice) {
         const pos = codexTrading.position;
         const holdTime = Date.now() - pos.entryTime;
 
-        const shouldExit = (pos.side === 'LONG' && priceChange < -THRESHOLD) ||
-            (pos.side === 'SHORT' && priceChange > THRESHOLD) ||
+        const shouldExit = (pos.side === 'LONG' && priceChange < -CODEX_THRESHOLD) ||
+            (pos.side === 'SHORT' && priceChange > CODEX_THRESHOLD) ||
             holdTime > 10000;  // Close after 10 seconds max
 
         if (shouldExit) {
             const pnl = pos.side === 'LONG'
-                ? (currentPrice - pos.entryPrice) * 10000
-                : (pos.entryPrice - currentPrice) * 10000;
+                ? (currentPrice - pos.entryPrice) * 100000000
+                : (pos.entryPrice - currentPrice) * 100000000;
 
             const trade = {
                 id: `cx-${Date.now()}`,
@@ -167,12 +171,12 @@ function checkCodexTrade(currentPrice) {
             console.log(`🐢 Codex CLOSED ${pos.side}: PnL $${trade.pnl.toFixed(2)}`);
         }
     } else {
-        if (priceChange > THRESHOLD) {
+        if (priceChange > CODEX_THRESHOLD) {
             codexTrading.position = { side: 'LONG', entryPrice: currentPrice, entryTime: Date.now() };
-            console.log(`🐢 Codex OPENED LONG @ $${currentPrice.toFixed(4)}`);
-        } else if (priceChange < -THRESHOLD) {
+            console.log(`🐢 Codex OPENED LONG @ $${currentPrice.toFixed(6)}`);
+        } else if (priceChange < -CODEX_THRESHOLD) {
             codexTrading.position = { side: 'SHORT', entryPrice: currentPrice, entryTime: Date.now() };
-            console.log(`🐢 Codex OPENED SHORT @ $${currentPrice.toFixed(4)}`);
+            console.log(`🐢 Codex OPENED SHORT @ $${currentPrice.toFixed(6)}`);
         }
     }
 }
@@ -185,6 +189,24 @@ async function processGoldrushCandles(candles) {
 
     const latestCandle = candles[candles.length - 1];
     const price = latestCandle.close || latestCandle.quote_rate_usd;
+
+    // --- FLASH CRASH PROTECTION ---
+    // 1. Sanity Check: Price must be positive
+    if (!price || price <= 0) {
+        console.warn(`⚠️ PROTECTED: Ignored invalid price ($${price})`);
+        return;
+    }
+
+    // 2. Volatility Circuit Breaker: Ignore >20% instant moves (bad ticks)
+    const currentPrice = pairs[SYMBOL].price;
+    if (currentPrice > 0) {
+        const pctChange = Math.abs((price - currentPrice) / currentPrice);
+        if (pctChange > 0.20) { // 20% limit
+            console.warn(`⚠️ PROTECTED: Flash Crash detected! Ignored ${(pctChange * 100).toFixed(2)}% deviation. Price: ${price}, Prev: ${currentPrice}`);
+            return;
+        }
+    }
+    // -----------------------------
 
     const candleTimeMs = new Date(latestCandle.timestamp).getTime();
     const candleCloseTime = candleTimeMs + 60000;
@@ -213,7 +235,7 @@ async function processGoldrushCandles(candles) {
         .sort((a, b) => a.time - b.time)
         .slice(-60);
 
-    console.log(`📊 GoldRush accumulated candles: ${goldrushCandles.length}`);
+    // console.log(`📊 GoldRush accumulated candles: ${goldrushCandles.length}`);
 
     broadcast({
         type: 'FAST_TICK',
@@ -252,7 +274,7 @@ async function fetchCodexPrice() {
         const query = `
             query {
                 getBars(
-                    symbol: "${TOKEN_ADDRESS}:8453"
+                    symbol: "${TOKEN_ADDRESS}:${CODEX_NETWORK_ID}"
                     from: ${lookback}
                     to: ${now}
                     resolution: "1"
@@ -313,6 +335,7 @@ async function fetchCodexPrice() {
 
     } catch (err) {
         // Silently handle errors
+        // console.error("Codex Error:", err.message);
     }
 }
 
@@ -331,7 +354,7 @@ const goldrushClient = new GoldRushClient(
 function startStream() {
     goldrushClient.StreamingService.subscribeToOHLCVTokens(
         {
-            chain_name: StreamingChain.BASE_MAINNET,
+            chain_name: StreamingChain.SOLANA_MAINNET,
             token_addresses: [TOKEN_ADDRESS],
             interval: StreamingInterval.ONE_MINUTE,
             timeframe: StreamingTimeframe.ONE_HOUR,
@@ -340,7 +363,7 @@ function startStream() {
             next: (data) => {
                 const candles = Array.isArray(data) ? data : [data];
                 if (candles && candles.length > 0) {
-                    console.log(`📊 GoldRush SDK Candles Received: ${candles.length}`);
+                    // console.log(`📊 GoldRush SDK Candles Received: ${candles.length}`);
                     processGoldrushCandles(candles);
                 }
             },
@@ -352,16 +375,38 @@ function startStream() {
 
 // --- INITIALIZATION ---
 async function init() {
-    console.log("🚀 Server Starting (REAL MODE)...");
+    console.log("🚀 Server Starting (SOLANA MODE - BONK)...");
 
-    // Get Initial Price using Codex
+    // 1. Fetch Solana Network ID from Codex
+    try {
+        console.log("🔍 Resolving Codex Network ID for Solana...");
+        const netQuery = `query { getNetworks { id name } }`;
+        const netRes = await axios.post(
+            'https://graph.codex.io/graphql',
+            { query: netQuery },
+            { headers: { 'Content-Type': 'application/json', 'Authorization': process.env.CODEX_API_KEY }, timeout: 5000 }
+        );
+        const networks = netRes.data?.data?.getNetworks;
+        const solanaNet = networks?.find(n => n.name.toLowerCase().includes('solana'));
+        if (solanaNet) {
+            CODEX_NETWORK_ID = solanaNet.id;
+            console.log(`✅ Using Codex Network ID: ${CODEX_NETWORK_ID}`);
+        } else {
+            console.warn(`⚠️ Could not find Solana in Codex networks. Using fallback: ${CODEX_NETWORK_ID}`);
+        }
+    } catch (e) {
+        console.warn(`⚠️ Network ID fetch failed: ${e.message}. Using fallback: ${CODEX_NETWORK_ID}`);
+    }
+
+
+    // 2. Get Initial Price using Codex
     try {
         const now = Math.floor(Date.now() / 1000);
-        const lookback = now - 900;
+        const lookback = now - 3600; // Get last hour
         const query = `
             query {
                 getBars(
-                    symbol: "${TOKEN_ADDRESS}:8453"
+                    symbol: "${TOKEN_ADDRESS}:${CODEX_NETWORK_ID}"
                     from: ${lookback}
                     to: ${now}
                     resolution: "1"

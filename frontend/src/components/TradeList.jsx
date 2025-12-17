@@ -49,10 +49,10 @@ export default function TradeList({ trades, mode = 'fast', totalPnL = 0 }) {
                                         {trade.side}
                                     </td>
                                     <td className="p-3 font-mono opacity-80">
-                                        ${Number(trade.entryPrice).toFixed(4)}
+                                        ${Number(trade.entryPrice).toFixed(8)}
                                     </td>
                                     <td className="p-3 font-mono opacity-80">
-                                        ${Number(trade.exitPrice).toFixed(4)}
+                                        ${Number(trade.exitPrice).toFixed(8)}
                                     </td>
                                     <td className={`p-3 font-mono font-bold ${isWin ? 'text-green-400' : 'text-red-400'}`}>
                                         {isWin ? '+' : ''}${Number(trade.pnl || 0).toFixed(2)}

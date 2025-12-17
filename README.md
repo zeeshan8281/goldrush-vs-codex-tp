@@ -1,6 +1,6 @@
 # GoldRush vs Codex Trading Paper Simulator
 
-A real-time trading paper simulator that compares **GoldRush Streaming API** against **Codex Polling API** for the VIRTUAL-USD token on Base.
+A real-time trading paper simulator that compares **GoldRush Streaming API** against **Codex Polling API** for the BONK token on Solana.
 
 ![Dashboard Preview](https://img.shields.io/badge/Status-Live-green) ![Node.js](https://img.shields.io/badge/Node.js-18+-blue) ![React](https://img.shields.io/badge/React-19-blue)
 
@@ -146,9 +146,9 @@ SHORT: (entryPrice - exitPrice) × 10000
 
 | Property | Value |
 |----------|-------|
-| Symbol | VIRTUAL-USD |
-| Address | `0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b` |
-| Chain | Base Mainnet |
+| Symbol | BONK |
+| Address | `DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263` |
+| Chain | Solana Mainnet |
 | Interval | 1 Minute |
 
 ## 🤝 Contributing

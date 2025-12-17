@@ -68,7 +68,7 @@ export default function Dashboard({ state }) {
                         </div>
                         <div className="flex items-baseline gap-3 mt-1">
                             <div className="text-3xl font-mono font-light text-white">
-                                ${goldrushTick?.price?.toFixed(4) || '0.0000'}
+                                ${goldrushTick?.price?.toFixed(8) || '0.00000000'}
                             </div>
                         </div>
                     </div>
@@ -117,7 +117,7 @@ export default function Dashboard({ state }) {
                         </div>
                         <div className="flex items-baseline gap-3 mt-1">
                             <div className="text-3xl font-mono font-light text-muted-foreground">
-                                ${codexTick?.price?.toFixed(4) || '0.0000'}
+                                ${codexTick?.price?.toFixed(8) || '0.00000000'}
                             </div>
                         </div>
                     </div>
