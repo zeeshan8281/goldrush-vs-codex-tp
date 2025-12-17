@@ -15,6 +15,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@codex-data/sdk": "^2.0.0",
     "@covalenthq/client-sdk": "^2.3.7",
     "axios": "^1.13.2",
     "cors": "^2.8.5",

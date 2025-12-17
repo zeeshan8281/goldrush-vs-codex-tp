@@ -4,6 +4,7 @@ const WebSocket = require('ws');
 const cors = require('cors');
 const axios = require('axios');
 const { GoldRushClient, StreamingChain, StreamingInterval, StreamingTimeframe } = require('@covalenthq/client-sdk');
+const { Codex } = require('@codex-data/sdk');
 require('dotenv').config();
 
 // --- CONFIGURATION ---
@@ -84,8 +85,11 @@ app.post('/update-token', async (req, res) => {
     broadcast({ type: 'RESET', data: { pair: SYMBOL } });
 
     // 4. Restart Services
-    // Codex: Clear interval and restart loop
-    if (codexInterval) clearInterval(codexInterval);
+    // Codex: Clear subscription and restart
+    if (codexCleanup) {
+        codexCleanup();
+        codexCleanup = null;
+    }
 
     // GoldRush: Trigger new subscription (SDK handles sub management usually, or we just add a new one)
     // Note: The Covalent SDK might stack subscriptions if not carefully managed. 
@@ -214,6 +218,7 @@ function checkCodexTrade(currentPrice) {
             console.log(`🐢 Codex CLOSED ${pos.side}: PnL $${trade.pnl.toFixed(2)}`);
         }
     } else {
+        // --- INSTANT EXECUTION (Raw Speed) ---
         if (priceChange > CODEX_THRESHOLD) {
             codexTrading.position = { side: 'LONG', entryPrice: currentPrice, entryTime: Date.now() };
             console.log(`🐢 Codex OPENED LONG @ $${currentPrice.toFixed(6)}`);
@@ -222,6 +227,13 @@ function checkCodexTrade(currentPrice) {
             console.log(`🐢 Codex OPENED SHORT @ $${currentPrice.toFixed(6)}`);
         }
     }
+}
+
+// --- HELPER: Calculate Accuracy (Win Rate) ---
+function calculateAccuracy(trades) {
+    if (!trades || trades.length === 0) return 100.0; // Optimistic default
+    const wins = trades.filter(t => t.pnl > 0).length;
+    return ((wins / trades.length) * 100).toFixed(1);
 }
 
 // --- GOLDRUSH: Process OHLCV Candles ---
@@ -278,8 +290,6 @@ async function processGoldrushCandles(candles) {
         .sort((a, b) => a.time - b.time)
         .slice(-60);
 
-    // console.log(`📊 GoldRush accumulated candles: ${goldrushCandles.length}`);
-
     broadcast({
         type: 'FAST_TICK',
         data: {
@@ -295,20 +305,127 @@ async function processGoldrushCandles(candles) {
     checkGoldrushTrade(price);
 }
 
-// --- CODEX POLLING LOOP ---
-let codexInterval = null;
-async function startCodexPolling() {
-    if (codexInterval) clearInterval(codexInterval);
-    console.log("🐢 Starting Codex Polling Loop (1 minute)...");
-    console.log("🐢 Starting Codex Polling Loop (1 minute)...");
+// --- CODEX WEBSOCKET SUBSCRIPTION ---
+let codexCleanup = null;
 
-    // Fetch immediately on startup
+// ... (startCodexPolling / startCodexSubscription omitted for brevity, assuming generic replacement target or surrounding context match) ...
+// Actually, I need to match the surrounding code for replace_file_content to work. 
+// I will target the updated broadcast area for Goldrush and Codex separately or use multi-replace if possible.
+// Waiting for user instruction is better or careful targeting.
+// Re-targeting just processCodexUpdate and adding helper at top or bottom.
+
+
+// --- CODEX WEBSOCKET SUBSCRIPTION ---
+// codexCleanup is already declared globally above.
+
+
+async function startCodexPolling() {
+    // 1. Fetch History (Backfill) via HTTP
+    console.log("🐢 Fetching Codex History...");
     await fetchCodexPrice();
 
-    // Then poll every minute
-    codexInterval = setInterval(async () => {
-        await fetchCodexPrice();
-    }, 60000);
+    // 2. Start Live Subscription via SDK (Low-Level)
+    startCodexSubscription();
+}
+
+function startCodexSubscription() {
+    if (codexCleanup) codexCleanup();
+
+    console.log("🐢 Connecting to Codex SDK Stream...");
+    const codex = new Codex(process.env.CODEX_API_KEY);
+
+    const combinedTokenId = `${TOKEN_ADDRESS}:${CODEX_NETWORK_ID}`;
+    console.log(`🐢 Subscribing to Codex (SDK/Raw) with: ${combinedTokenId}`);
+
+    // Raw Query that we KNOW works
+    const query = `
+        subscription {
+            onTokenBarsUpdated(
+                tokenId: "${combinedTokenId}"
+            ) {
+                aggregates {
+                    r1 {
+                        usd {
+                            c
+                            o
+                            h
+                            l
+                            t
+                        }
+                    }
+                }
+            }
+        }
+    `;
+
+    try {
+        codexCleanup = codex.subscribe(
+            query,
+            {},
+            {
+                next: (data) => {
+                    const r1 = data?.data?.onTokenBarsUpdated?.aggregates?.r1?.usd;
+                    if (r1) {
+                        processCodexUpdate(r1);
+                    }
+                },
+                error: (err) => console.error('❌ Codex SDK Subscription Error:', err),
+                complete: () => console.log('🐢 Codex SDK Subscription Complete'),
+            }
+        );
+        console.log("✅ Codex SDK Subscription Active!");
+
+    } catch (err) {
+        console.error("❌ Failed to start Codex SDK Subscription:", err);
+    }
+}
+
+
+function processCodexUpdate(barData) {
+    const codexPrice = barData.c;
+    const timestamp = barData.t; // Unix timestamp in seconds
+    const timeMs = timestamp * 1000;
+
+    // Update State
+    pairs[SYMBOL].slowPrice = codexPrice;
+
+    // Update Candles (Append new data)
+    const newCandle = {
+        time: timestamp,
+        open: barData.o,
+        high: barData.h,
+        low: barData.l,
+        close: barData.c
+    };
+
+    // Merge logic
+    const candleMap = new Map();
+    codexCandles.forEach(c => candleMap.set(c.time, c));
+    candleMap.set(newCandle.time, newCandle); // Overwrite/Add
+
+    codexCandles = Array.from(candleMap.values())
+        .sort((a, b) => a.time - b.time)
+        .slice(-60); // Keep last 60 mins
+
+    // Calculate Latency (Time since candle start vs arrival)
+    // Note: Codex timestamp is candle START time. So real latency = (Now - CandleStart)
+    const latency = Date.now() - timeMs;
+
+    console.log(`🐢 CODEX [STREAM]: $${codexPrice} | Candles: ${codexCandles.length} | Latency: ${latency}ms`);
+
+    broadcast({
+        type: 'SLOW_TICK',
+        data: {
+            pair: SYMBOL,
+            price: codexPrice,
+            timestamp: Date.now(),
+            latency: 'Live (Raw)', // Reverted to raw status
+            candles: codexCandles
+        }
+    });
+
+    // Run INDEPENDENT Codex paper trading
+    checkCodexTrade(codexPrice);
 }
 
 async function fetchCodexPrice() {

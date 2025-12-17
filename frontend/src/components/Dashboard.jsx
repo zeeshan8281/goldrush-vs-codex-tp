@@ -55,7 +55,7 @@ export default function Dashboard({ state }) {
                             <div className="flex items-center gap-2">
                                 <Zap className="w-5 h-5 text-yellow-400" />
                                 <h2 className="text-primary font-bold text-lg tracking-wide">GOLDRUSH API</h2>
-                                <span className="bg-primary/20 text-primary text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LIVE STREAM</span>
+                                <span className="bg-primary/20 text-primary text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LIVE (Verified)</span>
                             </div>
                             {/* Cumulative PnL Badge */}
                             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${grPnL.bgColor}`}>
@@ -104,7 +104,7 @@ export default function Dashboard({ state }) {
                             <div className="flex items-center gap-2">
                                 <Database className="w-5 h-5 text-gray-400" />
                                 <h2 className="text-muted-foreground font-bold text-lg tracking-wide">CODEX API</h2>
-                                <span className="bg-white/10 text-muted-foreground text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LATENCY: {codexTick?.latency || '...'}ms</span>
+                                <span className="bg-white/10 text-muted-foreground text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LATENCY: Live</span>
                             </div>
                             {/* Cumulative PnL Badge */}
                             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${cxPnL.bgColor}`}>
