@@ -135,8 +135,13 @@ function checkGoldrushTrade(currentPrice) {
         const pos = goldrushTrading.position;
         const holdTime = Date.now() - pos.entryTime;
 
-        const shouldExit = (pos.side === 'LONG' && priceChange < -GOLDRUSH_THRESHOLD) ||
-            (pos.side === 'SHORT' && priceChange > GOLDRUSH_THRESHOLD) ||
+        // Calculate profit/loss from ENTRY price (not previous tick)
+        const priceChangeFromEntry = (currentPrice - pos.entryPrice) / pos.entryPrice;
+
+        // TAKE PROFIT: Exit when position is profitable by 3x threshold
+        const takeProfitTarget = GOLDRUSH_THRESHOLD * 3;
+        const shouldExit = (pos.side === 'LONG' && priceChangeFromEntry > takeProfitTarget) ||
+            (pos.side === 'SHORT' && priceChangeFromEntry < -takeProfitTarget) ||
             holdTime > 10000;  // Close after 10 seconds max
 
         if (shouldExit) {
@@ -189,8 +194,13 @@ function checkCodexTrade(currentPrice) {
         const pos = codexTrading.position;
         const holdTime = Date.now() - pos.entryTime;
 
-        const shouldExit = (pos.side === 'LONG' && priceChange < -CODEX_THRESHOLD) ||
-            (pos.side === 'SHORT' && priceChange > CODEX_THRESHOLD) ||
+        // Calculate profit/loss from ENTRY price (not previous tick)
+        const priceChangeFromEntry = (currentPrice - pos.entryPrice) / pos.entryPrice;
+
+        // TAKE PROFIT: Exit when position is profitable by 3x threshold
+        const takeProfitTarget = CODEX_THRESHOLD * 3;
+        const shouldExit = (pos.side === 'LONG' && priceChangeFromEntry > takeProfitTarget) ||
+            (pos.side === 'SHORT' && priceChangeFromEntry < -takeProfitTarget) ||
             holdTime > 10000;  // Close after 10 seconds max
 
         if (shouldExit) {
@@ -245,26 +255,15 @@ async function processGoldrushCandles(candles) {
     const latestCandle = candles[candles.length - 1];
     const price = latestCandle.close || latestCandle.quote_rate_usd;
 
-    // --- FLASH CRASH PROTECTION ---
-    // 1. Sanity Check: Price must be positive
+    // Basic validation: Price must be positive
     if (!price || price <= 0) {
-        console.warn(`⚠️ PROTECTED: Ignored invalid price ($${price})`);
+        console.warn(`⚠️ Ignored invalid price ($${price})`);
         return;
     }
 
-    // 2. Volatility Circuit Breaker: Ignore >20% instant moves (bad ticks)
-    const currentPrice = pairs[SYMBOL].price;
-    if (currentPrice > 0) {
-        const pctChange = Math.abs((price - currentPrice) / currentPrice);
-        if (pctChange > 0.20) { // 20% limit
-            console.warn(`⚠️ PROTECTED: Flash Crash detected! Ignored ${(pctChange * 100).toFixed(2)}% deviation. Price: ${price}, Prev: ${currentPrice}`);
-            return;
-        }
-    }
-    // -----------------------------
-
     const candleTimeMs = new Date(latestCandle.timestamp).getTime();
-    const candleCloseTime = candleTimeMs + 60000;
+    // Adjusted for 1s streaming interval: add 1000ms instead of 60000ms
+    const candleCloseTime = candleTimeMs + 1000;
     let goldRushLatency = fastArrival - candleCloseTime;
     if (goldRushLatency < 0) goldRushLatency = 0;
 
