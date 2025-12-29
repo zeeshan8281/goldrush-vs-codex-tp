@@ -10,6 +10,7 @@ function App() {
   const [marketState, setMarketState] = useState({
     goldrush: { ticks: {}, trades: [], logs: [] },
     codex: { ticks: {}, trades: [], logs: [] },
+    gecko: { ticks: {}, trades: [], logs: [] },
     ticks: {},
     trades: [],
     ideas: []
@@ -73,6 +74,10 @@ function App() {
           codex: {
             ...prev.codex,
             ticks: initialData ? { [firstPair]: { pair: firstPair, price: initialData.slowPrice || initialData.price, latency: 'Init', timestamp: Date.now() } } : prev.codex.ticks
+          },
+          gecko: {
+            ...prev.gecko,
+            ticks: initialData ? { [firstPair]: { pair: firstPair, price: initialData.geckoPrice || initialData.price, latency: 'Init', timestamp: Date.now() } } : prev.gecko.ticks
           }
         }));
         break;
@@ -155,6 +160,45 @@ function App() {
         });
         break;
 
+      case 'GECKO_TICK':
+        setMarketState(prev => {
+          const newLog = {
+            time: new Date().toLocaleTimeString(),
+            type: 'TICK',
+            message: `$${msg.data.price?.toFixed(6)} | ${msg.data.candles?.length || 0} candles | ${msg.data.latency}ms`
+          };
+          return {
+            ...prev,
+            gecko: {
+              ...prev.gecko,
+              ticks: {
+                ...prev.gecko.ticks,
+                [msg.data.pair]: msg.data
+              },
+              logs: [...prev.gecko.logs, newLog].slice(-50)
+            }
+          };
+        });
+        break;
+
+      case 'GECKO_TRADE':
+        setMarketState(prev => {
+          const newLog = {
+            time: new Date().toLocaleTimeString(),
+            type: 'TRADE',
+            message: `${msg.data.side} | Entry $${msg.data.entryPrice?.toFixed(8)} → Exit $${msg.data.exitPrice?.toFixed(8)} | PnL ${msg.data.pnl >= 0 ? '+' : ''}$${msg.data.pnl?.toFixed(2)}`
+          };
+          return {
+            ...prev,
+            gecko: {
+              ...prev.gecko,
+              trades: [msg.data, ...prev.gecko.trades].slice(0, 50),
+              logs: [...prev.gecko.logs, newLog].slice(-50)
+            }
+          };
+        });
+        break;
+
       case 'TICK': // Legacy fallback
         setMarketState(prev => ({
           ...prev,
@@ -187,6 +231,7 @@ function App() {
         setMarketState({
           goldrush: { ticks: {}, trades: [], logs: [] },
           codex: { ticks: {}, trades: [], logs: [] },
+          gecko: { ticks: {}, trades: [], logs: [] },
           ticks: {},
           trades: [],
           ideas: []

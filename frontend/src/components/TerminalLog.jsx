@@ -9,13 +9,26 @@ export default function TerminalLog({ logs = [], mode = 'fast' }) {
         }
     }, [logs]);
 
-    const modeColor = mode === 'fast' ? 'text-green-400' : 'text-purple-400';
-    const modeLabel = mode === 'fast' ? 'GOLDRUSH' : 'CODEX';
+    let modeColor, modeLabel, indicatorColor;
+
+    if (mode === 'fast') {
+        modeColor = 'text-green-400';
+        modeLabel = 'GOLDRUSH';
+        indicatorColor = 'bg-green-400';
+    } else if (mode === 'gecko') {
+        modeColor = 'text-emerald-400';
+        modeLabel = 'GECKO';
+        indicatorColor = 'bg-emerald-400';
+    } else {
+        modeColor = 'text-purple-400';
+        modeLabel = 'CODEX';
+        indicatorColor = 'bg-purple-400';
+    }
 
     return (
         <div className="flex flex-col h-full min-h-0 bg-black/60 rounded-lg border border-white/10 overflow-hidden">
             <div className="px-3 py-2 border-b border-white/10 bg-black/40 flex items-center gap-2 shrink-0">
-                <div className={`w-2 h-2 rounded-full ${mode === 'fast' ? 'bg-green-400' : 'bg-purple-400'} animate-pulse`} />
+                <div className={`w-2 h-2 rounded-full ${indicatorColor} animate-pulse`} />
                 <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
                     {modeLabel} Stream
                 </span>

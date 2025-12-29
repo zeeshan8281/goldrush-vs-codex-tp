@@ -5,11 +5,11 @@ export default function TradeList({ trades, mode = 'fast', totalPnL = 0 }) {
         <div className="flex flex-col h-full min-h-0">
             <div className="p-3 border-b border-white/5 bg-black/40 backdrop-blur flex justify-between items-center shrink-0">
                 <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                    {mode === 'fast' ? (
-                        <><span>⚡</span> GoldRush Executions</>
-                    ) : (
-                        <><span>🐢</span> Codex Executions</>
-                    )}
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                        {mode === 'fast' && <><span>⚡</span> GoldRush Executions</>}
+                        {mode === 'slow' && <><span>🐢</span> Codex Executions</>}
+                        {mode === 'gecko' && <><span>🦎</span> Gecko Executions</>}
+                    </h3>
                 </h3>
                 <div className="flex items-center gap-3">
                     {/* Cumulative PnL in header */}

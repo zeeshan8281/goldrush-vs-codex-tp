@@ -9,22 +9,27 @@ export default function Dashboard({ state }) {
     const activePair = Object.keys(state.goldrush.ticks)[0] || 'VIRTUAL-USD';
     const goldrushTick = state.goldrush.ticks[activePair];
     const codexTick = state.codex.ticks[activePair];
+    const geckoTick = state.gecko?.ticks[activePair];
 
     // Extract candles arrays for charts
     const goldrushCandles = goldrushTick?.candles || [];
     const codexCandles = codexTick?.candles || [];
+    const geckoCandles = geckoTick?.candles || [];
 
     // Extract logs
     const goldrushLogs = state.goldrush.logs || [];
     const codexLogs = state.codex.logs || [];
+    const geckoLogs = state.gecko?.logs || [];
 
     // Calculate Cumulative Totals
     const totalGoldRushPnL = state.goldrush.trades.reduce((acc, t) => acc + (Number(t.pnl) || 0), 0);
     const totalCodexPnL = state.codex.trades.reduce((acc, t) => acc + (Number(t.pnl) || 0), 0);
+    const totalGeckoPnL = state.gecko?.trades.reduce((acc, t) => acc + (Number(t.pnl) || 0), 0) || 0;
 
     // Trade counts
     const goldrushTradeCount = state.goldrush.trades.length;
     const codexTradeCount = state.codex.trades.length;
+    const geckoTradeCount = state.gecko?.trades.length || 0;
 
     // Helper for PnL display
     const formatPnL = (pnl) => {
@@ -39,10 +44,11 @@ export default function Dashboard({ state }) {
 
     const grPnL = formatPnL(totalGoldRushPnL);
     const cxPnL = formatPnL(totalCodexPnL);
+    const gkPnL = formatPnL(totalGeckoPnL);
 
     return (
-        // MAIN GRID: 2 Columns, Fixed Height
-        <div className="grid grid-cols-2 gap-4 h-[calc(100vh-120px)] p-1">
+        // MAIN GRID: 3 Columns, Fixed Height
+        <div className="grid grid-cols-3 gap-4 h-[calc(100vh-120px)] p-1">
 
             {/* --- LEFT COLUMN (GOLDRUSH) --- */}
             <div className="grid grid-rows-[45%_30%_25%] gap-3 h-full">
@@ -50,12 +56,12 @@ export default function Dashboard({ state }) {
                 {/* 1. TOP: CHART */}
                 <div className="glass-card rounded-xl border-2 border-primary/20 shadow-[0_0_50px_rgba(74,222,128,0.1)] relative overflow-hidden">
                     {/* Header Overlay with background */}
-                    <div className="absolute top-0 left-0 right-0 z-20 p-4 pr-20 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none">
+                    <div className="absolute top-0 left-0 right-0 z-20 p-4 pr-10 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <Zap className="w-5 h-5 text-yellow-400" />
-                                <h2 className="text-primary font-bold text-lg tracking-wide">GOLDRUSH API</h2>
-                                <span className="bg-primary/20 text-primary text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LIVE (Verified)</span>
+                                <h2 className="text-primary font-bold text-lg tracking-wide">GOLDRUSH</h2>
+                                <span className="bg-primary/20 text-primary text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LIVE</span>
                             </div>
                             {/* Cumulative PnL Badge */}
                             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${grPnL.bgColor}`}>
@@ -93,18 +99,18 @@ export default function Dashboard({ state }) {
             </div>
 
 
-            {/* --- RIGHT COLUMN (CODEX) --- */}
+            {/* --- MIDDLE COLUMN (CODEX) --- */}
             <div className="grid grid-rows-[45%_30%_25%] gap-3 h-full">
 
                 {/* 1. TOP: CHART */}
                 <div className="glass-card rounded-xl border-2 border-white/5 opacity-80 relative overflow-hidden">
                     {/* Header Overlay with background */}
-                    <div className="absolute top-0 left-0 right-0 z-20 p-4 pr-20 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none">
+                    <div className="absolute top-0 left-0 right-0 z-20 p-4 pr-10 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <Database className="w-5 h-5 text-gray-400" />
-                                <h2 className="text-muted-foreground font-bold text-lg tracking-wide">CODEX API</h2>
-                                <span className="bg-white/10 text-muted-foreground text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LATENCY: Live</span>
+                                <h2 className="text-muted-foreground font-bold text-lg tracking-wide">CODEX</h2>
+                                <span className="bg-white/10 text-muted-foreground text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LIVE</span>
                             </div>
                             {/* Cumulative PnL Badge */}
                             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${cxPnL.bgColor}`}>
@@ -138,6 +144,54 @@ export default function Dashboard({ state }) {
                 {/* 3. BOTTOM: TERMINAL LOG */}
                 <div className="overflow-hidden">
                     <TerminalLog logs={codexLogs} mode="slow" />
+                </div>
+            </div>
+
+            {/* --- RIGHT COLUMN (COINGECKO) --- */}
+            <div className="grid grid-rows-[45%_30%_25%] gap-3 h-full">
+
+                {/* 1. TOP: CHART */}
+                <div className="glass-card rounded-xl border-2 border-emerald-500/20 shadow-[0_0_30px_rgba(16,185,129,0.1)] relative overflow-hidden">
+                    {/* Header Overlay with background */}
+                    <div className="absolute top-0 left-0 right-0 z-20 p-4 pr-10 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-500 font-bold text-xs">🦎</div>
+                                <h2 className="text-emerald-400 font-bold text-lg tracking-wide">GECKO</h2>
+                                <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LIVE</span>
+                            </div>
+                            {/* Cumulative PnL Badge */}
+                            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${gkPnL.bgColor}`}>
+                                <gkPnL.icon className={`w-4 h-4 ${gkPnL.color}`} />
+                                <div className="text-right">
+                                    <div className={`text-lg font-bold font-mono ${gkPnL.color}`}>{gkPnL.text}</div>
+                                    <div className="text-[10px] text-gray-400">{geckoTradeCount} trades</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-baseline gap-3 mt-1">
+                            <div className="text-3xl font-mono font-light text-white">
+                                ${geckoTick?.price?.toFixed(8) || '0.00000000'}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Chart Canvas Container */}
+                    <div className="absolute inset-0 top-0 w-full h-full z-10">
+                        <Chart candles={geckoCandles} color="#10b981" />
+                    </div>
+                </div>
+
+                {/* 2. MIDDLE: TRADES */}
+                <div className="glass-card rounded-xl border border-emerald-500/10 relative overflow-hidden">
+                    <div className="absolute inset-0 w-full h-full">
+                        <TradeList trades={state.gecko?.trades || []} mode="gecko" totalPnL={totalGeckoPnL} />
+                    </div>
+                </div>
+
+                {/* 3. BOTTOM: TERMINAL LOG */}
+                <div className="overflow-hidden">
+                    <TerminalLog logs={geckoLogs} mode="gecko" />
                 </div>
             </div>
 

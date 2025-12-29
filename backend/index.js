@@ -19,13 +19,15 @@ let pairs = {
     [SYMBOL]: {
         price: 0,
         fastPrice: 0,
-        slowPrice: 0
+        slowPrice: 0,
+        geckoPrice: 0
     }
 };
 
 // Store OHLCV candle arrays for charts (independent)
 let goldrushCandles = [];
 let codexCandles = [];
+let geckoCandles = [];
 
 // INDEPENDENT Paper Trading States - NO CONNECTION between them
 let goldrushTrading = {
@@ -42,6 +44,13 @@ let codexTrading = {
     totalPnL: 0
 };
 
+let geckoTrading = {
+    position: null,
+    lastPrice: null,
+    trades: [],
+    totalPnL: 0
+};
+
 let clients = new Set();
 let isRunning = true;
 
@@ -50,6 +59,8 @@ let isRunning = true;
 const GOLDRUSH_THRESHOLD = 0.000001;
 // Codex: Lower threshold as it has implicit time-filtering (0.0001%)
 const CODEX_THRESHOLD = 0.000001;
+// CoinGecko: Same threshold logic
+const GECKO_THRESHOLD = 0.000001;
 
 // --- SERVER SETUP ---
 const app = express();
@@ -80,6 +91,8 @@ app.post('/update-token', async (req, res) => {
     codexCandles = [];
     goldrushTrading = { position: null, lastPrice: null, trades: [], totalPnL: 0 };
     codexTrading = { position: null, lastPrice: null, trades: [], totalPnL: 0 };
+    geckoTrading = { position: null, lastPrice: null, trades: [], totalPnL: 0 };
+    geckoCandles = [];
 
     // 3. Broadcast RESET to all clients
     broadcast({ type: 'RESET', data: { pair: SYMBOL } });
@@ -102,6 +115,7 @@ app.post('/update-token', async (req, res) => {
     // Actually, to be clean:
     startStream(); // Resubscribe
     startCodexPolling(); // Restart polling
+    startGeckoStream(); // Restart Gecko
 
     res.json({ success: true, message: `Switched to ${SYMBOL}` });
 });
@@ -239,6 +253,65 @@ function checkCodexTrade(currentPrice) {
     }
 }
 
+// --- COINGECKO PAPER TRADING ---
+function checkGeckoTrade(currentPrice) {
+    if (!currentPrice || currentPrice <= 0) return;
+
+    const prev = geckoTrading.lastPrice;
+    geckoTrading.lastPrice = currentPrice;
+
+    if (!prev) return;
+
+    const priceChange = (currentPrice - prev) / prev;
+
+    if (geckoTrading.position) {
+        const pos = geckoTrading.position;
+        const holdTime = Date.now() - pos.entryTime;
+
+        // Calculate profit/loss from ENTRY price
+        const priceChangeFromEntry = (currentPrice - pos.entryPrice) / pos.entryPrice;
+
+        // TAKE PROFIT: Exit when position is profitable by 3x threshold
+        const takeProfitTarget = GECKO_THRESHOLD * 3;
+        const shouldExit = (pos.side === 'LONG' && priceChangeFromEntry > takeProfitTarget) ||
+            (pos.side === 'SHORT' && priceChangeFromEntry < -takeProfitTarget) ||
+            holdTime > 10000;  // Close after 10 seconds max
+
+        if (shouldExit) {
+            const pnl = pos.side === 'LONG'
+                ? (currentPrice - pos.entryPrice) * 100000000
+                : (pos.entryPrice - currentPrice) * 100000000;
+
+            const trade = {
+                id: `gk-${Date.now()}`,
+                timestamp: Date.now(),
+                pair: SYMBOL,
+                side: pos.side,
+                entryPrice: pos.entryPrice,
+                exitPrice: currentPrice,
+                pnl: Number(pnl.toFixed(2)),
+                latency: `${Date.now() - pos.entryTime}ms`
+            };
+
+            geckoTrading.trades.unshift(trade);
+            if (geckoTrading.trades.length > 50) geckoTrading.trades.pop();
+            geckoTrading.totalPnL += trade.pnl;
+            geckoTrading.position = null;
+
+            broadcast({ type: 'GECKO_TRADE', data: trade });
+            console.log(`🦎 Gecko CLOSED ${pos.side}: PnL $${trade.pnl.toFixed(2)}`);
+        }
+    } else {
+        if (priceChange > GECKO_THRESHOLD) {
+            geckoTrading.position = { side: 'LONG', entryPrice: currentPrice, entryTime: Date.now() };
+            console.log(`🦎 Gecko OPENED LONG @ $${currentPrice.toFixed(6)}`);
+        } else if (priceChange < -GECKO_THRESHOLD) {
+            geckoTrading.position = { side: 'SHORT', entryPrice: currentPrice, entryTime: Date.now() };
+            console.log(`🦎 Gecko OPENED SHORT @ $${currentPrice.toFixed(6)}`);
+        }
+    }
+}
+
 // --- HELPER: Calculate Accuracy (Win Rate) ---
 function calculateAccuracy(trades) {
     if (!trades || trades.length === 0) return 100.0; // Optimistic default
@@ -262,7 +335,7 @@ async function processGoldrushCandles(candles) {
     }
 
     const candleTimeMs = new Date(latestCandle.timestamp).getTime();
-    // Adjusted for 1s streaming interval: add 1000ms instead of 60000ms
+    // Adjusted to 1s as interval is ONE_SECOND
     const candleCloseTime = candleTimeMs + 1000;
     let goldRushLatency = fastArrival - candleCloseTime;
     if (goldRushLatency < 0) goldRushLatency = 0;
@@ -306,6 +379,7 @@ async function processGoldrushCandles(candles) {
 
 // --- CODEX WEBSOCKET SUBSCRIPTION ---
 let codexCleanup = null;
+let geckoCleanup = null; // Gecko client or cleanup function
 
 // ... (startCodexPolling / startCodexSubscription omitted for brevity, assuming generic replacement target or surrounding context match) ...
 // Actually, I need to match the surrounding code for replace_file_content to work. 
@@ -501,6 +575,143 @@ async function fetchCodexPrice() {
     }
 }
 
+// --- COINGECKO INTEGRATION ---
+async function fetchGeckoPool(tokenAddress) {
+    // 1. Find the best pool for this token on Solana
+    // https://api.geckoterminal.com/api/v2/networks/solana/tokens/{token_address}/pools
+    try {
+        console.log(`🦎 Finding Pool for ${SYMBOL} (${tokenAddress})...`);
+        const url = `https://api.geckoterminal.com/api/v2/networks/solana/tokens/${tokenAddress}/pools?page=1`;
+        const res = await axios.get(url, {
+            headers: { 'Accept': 'application/json' }
+        });
+
+        const pools = res.data?.data;
+        if (pools && pools.length > 0) {
+            // Pick the first one (usually highest liquidity)
+            const pool = pools[0];
+            const poolAddress = pool.attributes.address;
+            console.log(`🦎 Found Pool: ${poolAddress} (Liquidity: $${pool.attributes.reserve_in_usd})`);
+            return poolAddress;
+        } else {
+            console.warn("⚠️ No pools found on GeckoTerminal for this token.");
+            return null;
+        }
+    } catch (err) {
+        console.error("❌ Gecko Pool Lookup Error:", err.message);
+        return null;
+    }
+}
+
+function startGeckoStream() {
+    if (geckoCleanup) {
+        // If it's a WS client, close it
+        try { geckoCleanup.close(); } catch (e) { }
+        geckoCleanup = null;
+    }
+
+    // 1. Resolve Pool Address First
+    fetchGeckoPool(TOKEN_ADDRESS).then(poolAddress => {
+        if (!poolAddress) return;
+
+        console.log(`🦎 Connecting to CoinGecko Stream...`);
+        const ws = new WebSocket(`wss://stream.coingecko.com/v1?x_cg_pro_api_key=${process.env.COINGECKO_API_KEY}`);
+
+        geckoCleanup = ws; // Save ref to close later
+
+        ws.on('open', () => {
+            console.log("✅ Connected to CoinGecko Stream!");
+            // Subscribe to OnchainOHLCV
+            const subMsg = {
+                command: "subscribe",
+                identifier: JSON.stringify({ channel: "OnchainOHLCV" })
+            };
+            ws.send(JSON.stringify(subMsg));
+        });
+
+        ws.on('message', (data) => {
+            const msg = JSON.parse(data.toString());
+
+            // Handle Subscription Confirmation
+            if (msg.type === 'confirm_subscription') {
+                console.log("🦎 Subscription Confirmed. Configuring Pool...");
+                // Set the pool to stream: Solana network (solana), 1m interval, base token
+                const configMsg = {
+                    command: "message",
+                    identifier: JSON.stringify({ channel: "OnchainOHLCV" }),
+                    data: JSON.stringify({
+                        "network_id:pool_addresses": [`solana:${poolAddress}`],
+                        "interval": "1m",
+                        "token": "base",
+                        "action": "set_pools"
+                    })
+                };
+                ws.send(JSON.stringify(configMsg));
+            }
+
+            // Handle Pool Configuration Success
+            if (msg.message && typeof msg.message === 'string' && msg.message.includes("Subscription successful")) {
+                console.log(`🦎 Streaming started for ${poolAddress}`);
+            }
+
+            // Handle OHLCV Data
+            // Payload example: { c: ..., o: ..., h: ..., l: ..., t: ..., ... }
+            if (msg.c && msg.t) {
+                processGeckoUpdate(msg);
+            }
+        });
+
+        ws.on('error', (err) => console.error("❌ Gecko Stream Error:", err.message));
+        ws.on('close', () => console.log("📴 Gecko Stream Disconnected"));
+    });
+}
+
+function processGeckoUpdate(data) {
+    const price = data.c;
+    const timestamp = data.t; // Unix timestamp (seconds)
+    const timeMs = timestamp * 1000;
+
+    if (!price) return;
+
+    // Update State
+    pairs[SYMBOL].geckoPrice = price;
+
+    // Update Candles
+    const newCandle = {
+        time: timestamp,
+        open: data.o,
+        high: data.h,
+        low: data.l,
+        close: data.c
+    };
+
+    const candleMap = new Map();
+    geckoCandles.forEach(c => candleMap.set(c.time, c));
+    candleMap.set(newCandle.time, newCandle);
+
+    geckoCandles = Array.from(candleMap.values())
+        .sort((a, b) => a.time - b.time)
+        .slice(-60);
+
+    // Calculate Latency (Time since candle start)
+    const latency = Date.now() - timeMs;
+
+    console.log(`🦎 GECKO [STREAM]: $${price} | Candles: ${geckoCandles.length} | Latency: ${latency}ms`);
+
+    broadcast({
+        type: 'GECKO_TICK',
+        data: {
+            pair: SYMBOL,
+            price: price,
+            timestamp: Date.now(),
+            latency: latency,
+            candles: geckoCandles
+        }
+    });
+
+    checkGeckoTrade(price);
+}
+
 // --- GOLDRUSH SDK CLIENT ---
 const goldrushClient = new GoldRushClient(
     process.env.COVALENT_API_KEY,
@@ -518,7 +729,7 @@ function startStream() {
         {
             chain_name: StreamingChain.SOLANA_MAINNET,
             token_addresses: [TOKEN_ADDRESS],
-            interval: StreamingInterval.ONE_MINUTE,
+            interval: StreamingInterval.ONE_SECOND,
             timeframe: StreamingTimeframe.ONE_HOUR,
         },
         {
@@ -603,6 +814,7 @@ async function init() {
 
     startStream();
     startCodexPolling();
+    startGeckoStream();
 
     server.listen(PORT, () => {
         console.log(`✅ Backend listening on http://localhost:${PORT}`);
@@ -645,12 +857,29 @@ wss.on('connection', (ws) => {
         }));
     }
 
+
+    if (geckoCandles.length > 0) {
+        ws.send(JSON.stringify({
+            type: 'GECKO_TICK',
+            data: {
+                pair: SYMBOL,
+                price: pairs[SYMBOL].geckoPrice,
+                timestamp: Date.now(),
+                latency: 0,
+                candles: geckoCandles
+            }
+        }));
+    }
+
     // Send existing trades
     goldrushTrading.trades.forEach(trade => {
         ws.send(JSON.stringify({ type: 'FAST_TRADE', data: trade }));
     });
     codexTrading.trades.forEach(trade => {
         ws.send(JSON.stringify({ type: 'SLOW_TRADE', data: trade }));
+    });
+    geckoTrading.trades.forEach(trade => {
+        ws.send(JSON.stringify({ type: 'GECKO_TRADE', data: trade }));
     });
 
     ws.on('close', () => clients.delete(ws));
