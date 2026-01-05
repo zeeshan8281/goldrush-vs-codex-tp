@@ -655,9 +655,10 @@ function startGeckoStream() {
             }
 
             // Handle OHLCV Data
-            // Payload example: { c: ..., o: ..., h: ..., l: ..., t: ..., ... }
-            if (msg.c && msg.t) {
-                processGeckoUpdate(msg);
+            // CoinGecko may send data directly or wrapped in msg.message
+            const ohlcvData = msg.message || msg;
+            if (ohlcvData && ohlcvData.c && ohlcvData.t) {
+                processGeckoUpdate(ohlcvData);
             }
         });
 
