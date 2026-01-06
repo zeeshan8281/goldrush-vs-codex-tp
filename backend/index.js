@@ -6,13 +6,30 @@ const axios = require('axios');
 const { GoldRushClient, StreamingChain, StreamingInterval, StreamingTimeframe } = require('@covalenthq/client-sdk');
 const { Codex } = require('@codex-data/sdk');
 require('dotenv').config();
+const logger = require('./utils/logger');
 
 // --- CONFIGURATION ---
+// --- CONFIGURATION ---
 const PORT = process.env.PORT || 3002;
-// Default to BONK, but allow dynamic updates
+// Default to BONK (Solana), but allow dynamic updates
 let SYMBOL = 'BONK';
 let TOKEN_ADDRESS = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
-let CODEX_NETWORK_ID = '1399811149'; // Default Fallback (will try to fetch dynamic)
+let CURRENT_CHAIN = 'SOLANA'; // 'SOLANA' or 'BASE'
+
+const CHAIN_CONFIG = {
+    SOLANA: {
+        name: 'SOLANA',
+        codexNetworkId: '1399811149',
+        goldrushChain: StreamingChain.SOLANA_MAINNET
+    },
+    BASE: {
+        name: 'BASE',
+        codexNetworkId: '8453',
+        goldrushChain: StreamingChain.BASE_MAINNET
+    }
+};
+
+let CODEX_NETWORK_ID = CHAIN_CONFIG.SOLANA.codexNetworkId;
 
 // --- STATE MANAGEMENT ---
 let pairs = {
@@ -77,47 +94,192 @@ app.post('/update-token', async (req, res) => {
     const { address, symbol } = req.body;
     if (!address) return res.status(400).json({ error: 'Address is required' });
 
-    console.log(`🔄 Switching Token to: ${symbol || 'CUSTOM'} (${address})`);
+    // CHAIN DETECTION
+    // Solana addresses are Base58 (no '0x'), Base (EVM) addresses start with '0x'
+    const isEVM = address.startsWith('0x');
+    const newChain = isEVM ? 'BASE' : 'SOLANA';
+    const config = CHAIN_CONFIG[newChain];
 
-    // 1. Update Global State Variables
-    TOKEN_ADDRESS = address;
-    SYMBOL = symbol || 'CUSTOM';
+    // Only restart if chain changed OR token changed
+    const needsFullRestart = newChain !== CURRENT_CHAIN || address !== TOKEN_ADDRESS;
 
-    // 2. Clear Existing Data
-    pairs = {
-        [SYMBOL]: { price: 0, fastPrice: 0, slowPrice: 0 }
-    };
-    goldrushCandles = [];
-    codexCandles = [];
+    if (needsFullRestart) {
+        console.log(`\n🔄 SWITCHING TO ${newChain} NETWORK...`);
+        CURRENT_CHAIN = newChain;
+        TOKEN_ADDRESS = address;
+        SYMBOL = symbol || (isEVM ? 'TOKEN' : 'BONK');
+        CODEX_NETWORK_ID = config.codexNetworkId;
+
+        // Reset Global State
+        pairs = { [SYMBOL]: { price: 0, fastPrice: 0, slowPrice: 0, geckoPrice: 0 } };
+        goldrushCandles = [];
+        codexCandles = [];
+        geckoCandles = [];
+
+        goldrushTrading = { position: null, lastPrice: null, trades: [], totalPnL: 0 };
+        codexTrading = { position: null, lastPrice: null, trades: [], totalPnL: 0 };
+        geckoTrading = { position: null, lastPrice: null, trades: [], totalPnL: 0 };
+
+        performanceHistory = []; // Reset history on token switch
+
+        broadcast({ type: 'RESET', data: { symbol: SYMBOL, chain: newChain } });
+
+        // Update Providers
+        // 1. GoldRush
+        // We aren't using the external provider module instances in index.js yet, 
+        // but we can call startStream() which now uses CURRENT_CHAIN config.
+        startStream();
+
+        // 2. Codex
+        // Codex polling uses global CODEX_NETWORK_ID, which is updated above.
+        // Subscription would need potential restart if we had one.
+        // For now, relies on startCodexPolling() loop which reads the global var/
+        // But better to restart services if needed.
+        if (codexCleanup) {
+            codexCleanup();
+            // Start Codex (History + Subscription)
+            await initCodexProvider();
+        }
+        // 3. Gecko
+        // Restart Gecko
+        startGeckoStream();
+    }
+
+    res.json({ success: true, symbol: SYMBOL, chain: newChain });
+});
+
+// --- TIMEFRAME API ---
+let currentTimeframe = '1m';
+
+app.get('/api/timeframe', (req, res) => {
+    res.json({
+        current: currentTimeframe,
+        available: ['1m', '5m', '15m']
+    });
+});
+
+app.post('/api/timeframe', (req, res) => {
+    const { timeframe } = req.body;
+    if (!timeframe || !['1m', '5m', '15m'].includes(timeframe)) {
+        return res.status(400).json({ error: 'Invalid timeframe. Use 1m, 5m, or 15m.' });
+    }
+
+    console.log(`🕐 Switching all providers to ${timeframe} timeframe`);
+    currentTimeframe = timeframe;
+
+    // Reset trading state
     goldrushTrading = { position: null, lastPrice: null, trades: [], totalPnL: 0 };
     codexTrading = { position: null, lastPrice: null, trades: [], totalPnL: 0 };
     geckoTrading = { position: null, lastPrice: null, trades: [], totalPnL: 0 };
-    geckoCandles = [];
 
-    // 3. Broadcast RESET to all clients
-    broadcast({ type: 'RESET', data: { pair: SYMBOL } });
+    // Broadcast reset
+    broadcast({ type: 'TIMEFRAME_CHANGE', data: { timeframe } });
 
-    // 4. Restart Services
-    // Codex: Clear subscription and restart
-    if (codexCleanup) {
-        codexCleanup();
-        codexCleanup = null;
+    res.json({ success: true, timeframe });
+});
+
+// --- THROUGHPUT TRACKING (Hz) ---
+// Count updates per second
+let throughputCounters = { goldrush: 0, codex: 0, gecko: 0 };
+let currentThroughput = { goldrush: 0, codex: 0, gecko: 0 };
+let latencyStats = {
+    goldrush: { sum: 0, count: 0 },
+    codex: { sum: 0, count: 0 },
+    gecko: { sum: 0, count: 0 }
+};
+
+// Reset counters every second
+setInterval(() => {
+    currentThroughput = { ...throughputCounters };
+    throughputCounters = { goldrush: 0, codex: 0, gecko: 0 };
+
+    if (isRunning) {
+        broadcast({ type: 'METRICS_UPDATE', data: currentThroughput });
     }
+}, 1000);
 
-    // GoldRush: Trigger new subscription (SDK handles sub management usually, or we just add a new one)
-    // Note: The Covalent SDK might stack subscriptions if not carefully managed. 
-    // Ideally we would unsubscribe, but for this POC adding a new active subscription 
-    // and ignoring the old data (managed by our processing logic filtering by token if needed) is easiest.
-    // However, since we process whatever comes to 'processGoldrushCandles', we should rely on the SDK switching.
-    // For this specific SDK, calling subscribe again typically adds a new stream. 
-    // We will assume the restart is sufficient or we just pivot the stream.
+// Store latest averages for the API
+let latestLatency = { goldrush: 0, codex: 0, gecko: 0 };
 
-    // Actually, to be clean:
-    startStream(); // Resubscribe
-    startCodexPolling(); // Restart polling
-    startGeckoStream(); // Restart Gecko
+// Snapshot History every 5 seconds (Fast for testing, normally 1m or 10m)
+setInterval(() => {
+    if (!isRunning) return;
 
-    res.json({ success: true, message: `Switched to ${SYMBOL}` });
+    const getAvg = (provider) => {
+        const s = latencyStats[provider];
+        if (s.count === 0) return 0;
+        const avg = Math.round(s.sum / s.count);
+        // Reset
+        s.sum = 0; s.count = 0;
+        return avg;
+    };
+
+    // Calculate averages
+    const grAvg = getAvg('goldrush');
+    const cxAvg = getAvg('codex');
+    const gkAvg = getAvg('gecko');
+
+    // Update global state for /stats
+    latestLatency = { goldrush: grAvg, codex: cxAvg, gecko: gkAvg };
+
+    const snapshot = {
+        time: Date.now(),
+        goldrush: { pnl: goldrushTrading.totalPnL, avgLatency: grAvg },
+        codex: { pnl: codexTrading.totalPnL, avgLatency: cxAvg },
+        gecko: { pnl: geckoTrading.totalPnL, avgLatency: gkAvg }
+    };
+
+    performanceHistory.push(snapshot);
+    if (performanceHistory.length > 1000) performanceHistory.shift(); // Keep last 1000
+
+    broadcast({ type: 'HISTORY_UPDATE', data: performanceHistory });
+}, 5000);
+
+// Helper to increment throughput
+function countUpdate(provider) {
+    if (throughputCounters[provider] !== undefined) {
+        throughputCounters[provider]++;
+    }
+}
+
+// --- STATS ENDPOINT ---
+const startedAt = Date.now();
+let performanceHistory = [];
+
+app.get('/stats', (req, res) => {
+    const uptime = Date.now() - startedAt;
+
+    const calcStats = (trading) => {
+        const wins = trading.trades.filter(t => t.pnl > 0).length;
+        const losses = trading.trades.filter(t => t.pnl < 0).length;
+        return {
+            totalPnL: Number(trading.totalPnL.toFixed(2)),
+            totalTrades: trading.trades.length,
+            wins,
+            losses,
+            winRate: trading.trades.length > 0 ? Number(((wins / trading.trades.length) * 100).toFixed(1)) : 0,
+            avgPnLPerTrade: trading.trades.length > 0
+                ? Number((trading.totalPnL / trading.trades.length).toFixed(4))
+                : 0,
+            pnlPerMinute: uptime > 0
+                ? Number((trading.totalPnL / (uptime / 60000)).toFixed(4))
+                : 0
+        };
+    };
+
+    res.json({
+        uptime,
+        goldrush: calcStats(goldrushTrading),
+        codex: calcStats(codexTrading),
+        gecko: calcStats(geckoTrading),
+        history: performanceHistory,
+        throughput: currentThroughput, // Add live throughput data
+        latencyRace: {
+            goldrush: { avgLatency: latestLatency.goldrush },
+            codex: { avgLatency: latestLatency.codex },
+            gecko: { avgLatency: latestLatency.gecko }
+        }
+    });
 });
 
 const server = http.createServer(app);
@@ -138,7 +300,17 @@ function broadcast(msg) {
 function checkGoldrushTrade(currentPrice) {
     if (!currentPrice || currentPrice <= 0) return;
 
+    // SANITY CHECK: Reject prices that are more than 50% different from last known price
+    // This catches garbage data like 6.97e-9 when price should be ~0.0000116
     const prev = goldrushTrading.lastPrice;
+    if (prev && prev > 0) {
+        const priceChangePercent = Math.abs((currentPrice - prev) / prev);
+        if (priceChangePercent > 0.5) {
+            console.log(`⚠️ GoldRush REJECTED outlier price: $${currentPrice.toFixed(12)} (${(priceChangePercent * 100).toFixed(1)}% change)`);
+            return; // Skip this garbage data
+        }
+    }
+
     goldrushTrading.lastPrice = currentPrice;
 
     if (!prev) return;
@@ -180,15 +352,15 @@ function checkGoldrushTrade(currentPrice) {
             goldrushTrading.position = null;
 
             broadcast({ type: 'FAST_TRADE', data: trade });
-            console.log(`📈 GoldRush CLOSED ${pos.side}: PnL $${trade.pnl.toFixed(2)}`);
+            logger.goldrush.trade(pos.side, 'CLOSE', currentPrice, trade.pnl);
         }
     } else {
         if (priceChange > GOLDRUSH_THRESHOLD) {
             goldrushTrading.position = { side: 'LONG', entryPrice: currentPrice, entryTime: Date.now() };
-            console.log(`📈 GoldRush OPENED LONG @ $${currentPrice.toFixed(6)}`);
+            logger.goldrush.trade('LONG', 'OPEN', currentPrice);
         } else if (priceChange < -GOLDRUSH_THRESHOLD) {
             goldrushTrading.position = { side: 'SHORT', entryPrice: currentPrice, entryTime: Date.now() };
-            console.log(`📉 GoldRush OPENED SHORT @ $${currentPrice.toFixed(6)}`);
+            logger.goldrush.trade('SHORT', 'OPEN', currentPrice);
         }
     }
 }
@@ -197,7 +369,16 @@ function checkGoldrushTrade(currentPrice) {
 function checkCodexTrade(currentPrice) {
     if (!currentPrice || currentPrice <= 0) return;
 
+    // SANITY CHECK: Reject prices that are more than 50% different from last known price
     const prev = codexTrading.lastPrice;
+    if (prev && prev > 0) {
+        const priceChangePercent = Math.abs((currentPrice - prev) / prev);
+        if (priceChangePercent > 0.5) {
+            console.log(`⚠️ Codex REJECTED outlier price: $${currentPrice.toFixed(12)} (${(priceChangePercent * 100).toFixed(1)}% change)`);
+            return;
+        }
+    }
+
     codexTrading.lastPrice = currentPrice;
 
     if (!prev) return;
@@ -239,16 +420,16 @@ function checkCodexTrade(currentPrice) {
             codexTrading.position = null;
 
             broadcast({ type: 'SLOW_TRADE', data: trade });
-            console.log(`🐢 Codex CLOSED ${pos.side}: PnL $${trade.pnl.toFixed(2)}`);
+            logger.codex.trade(pos.side, 'CLOSE', currentPrice, trade.pnl);
         }
     } else {
         // --- INSTANT EXECUTION (Raw Speed) ---
         if (priceChange > CODEX_THRESHOLD) {
             codexTrading.position = { side: 'LONG', entryPrice: currentPrice, entryTime: Date.now() };
-            console.log(`🐢 Codex OPENED LONG @ $${currentPrice.toFixed(6)}`);
+            logger.codex.trade('LONG', 'OPEN', currentPrice);
         } else if (priceChange < -CODEX_THRESHOLD) {
             codexTrading.position = { side: 'SHORT', entryPrice: currentPrice, entryTime: Date.now() };
-            console.log(`🐢 Codex OPENED SHORT @ $${currentPrice.toFixed(6)}`);
+            logger.codex.trade('SHORT', 'OPEN', currentPrice);
         }
     }
 }
@@ -299,15 +480,15 @@ function checkGeckoTrade(currentPrice) {
             geckoTrading.position = null;
 
             broadcast({ type: 'GECKO_TRADE', data: trade });
-            console.log(`🦎 Gecko CLOSED ${pos.side}: PnL $${trade.pnl.toFixed(2)}`);
+            logger.gecko.trade(pos.side, 'CLOSE', currentPrice, trade.pnl);
         }
     } else {
         if (priceChange > GECKO_THRESHOLD) {
             geckoTrading.position = { side: 'LONG', entryPrice: currentPrice, entryTime: Date.now() };
-            console.log(`🦎 Gecko OPENED LONG @ $${currentPrice.toFixed(6)}`);
+            logger.gecko.trade('LONG', 'OPEN', currentPrice);
         } else if (priceChange < -GECKO_THRESHOLD) {
             geckoTrading.position = { side: 'SHORT', entryPrice: currentPrice, entryTime: Date.now() };
-            console.log(`🦎 Gecko OPENED SHORT @ $${currentPrice.toFixed(6)}`);
+            logger.gecko.trade('SHORT', 'OPEN', currentPrice);
         }
     }
 }
@@ -340,7 +521,13 @@ async function processGoldrushCandles(candles) {
     let goldRushLatency = fastArrival - candleCloseTime;
     if (goldRushLatency < 0) goldRushLatency = 0;
 
-    console.log(`\n⚡ GOLDRUSH [STREAM]: $${price} | Candles: ${candles.length} | Latency: ${goldRushLatency}ms`);
+    // Track Latency
+    latencyStats.goldrush.sum += goldRushLatency;
+    latencyStats.goldrush.count++;
+
+    logger.goldrush.stream(price, goldRushLatency, candles.length);
+    countUpdate('goldrush'); // Track Hz
+
 
     pairs[SYMBOL].price = price;
     pairs[SYMBOL].fastPrice = price;
@@ -360,7 +547,7 @@ async function processGoldrushCandles(candles) {
 
     goldrushCandles = Array.from(candleMap.values())
         .sort((a, b) => a.time - b.time)
-        .slice(-60);
+        .slice(-15);
 
     broadcast({
         type: 'FAST_TICK',
@@ -392,7 +579,7 @@ let geckoCleanup = null; // Gecko client or cleanup function
 // codexCleanup is already declared globally above.
 
 
-async function startCodexPolling() {
+async function initCodexProvider() {
     // 1. Fetch History (Backfill) via HTTP
     console.log("🐢 Fetching Codex History...");
     await fetchCodexPrice();
@@ -478,13 +665,18 @@ function processCodexUpdate(barData) {
 
     codexCandles = Array.from(candleMap.values())
         .sort((a, b) => a.time - b.time)
-        .slice(-60); // Keep last 60 mins
+        .slice(-15); // Keep last 15 candles
 
     // Calculate Latency (Time since candle start vs arrival)
     // Note: Codex timestamp is candle START time. So real latency = (Now - CandleStart)
     const latency = Date.now() - timeMs;
 
-    console.log(`🐢 CODEX [STREAM]: $${codexPrice} | Candles: ${codexCandles.length} | Latency: ${latency}ms`);
+    // Track Latency
+    latencyStats.codex.sum += latency;
+    latencyStats.codex.count++;
+
+    logger.codex.stream(codexPrice, latency, codexCandles.length);
+    countUpdate('codex'); // Track Hz
 
     broadcast({
         type: 'SLOW_TICK',
@@ -692,12 +884,17 @@ function processGeckoUpdate(data) {
 
     geckoCandles = Array.from(candleMap.values())
         .sort((a, b) => a.time - b.time)
-        .slice(-60);
+        .slice(-15);
 
     // Calculate Latency (Time since candle start)
     const latency = Date.now() - timeMs;
 
-    console.log(`🦎 GECKO [STREAM]: $${price} | Candles: ${geckoCandles.length} | Latency: ${latency}ms`);
+    // Track Latency
+    latencyStats.gecko.sum += latency;
+    latencyStats.gecko.count++;
+
+    logger.gecko.stream(price, latency, geckoCandles.length);
+    countUpdate('gecko'); // Track Hz
 
     broadcast({
         type: 'GECKO_TICK',
@@ -726,12 +923,15 @@ const goldrushClient = new GoldRushClient(
 );
 
 function startStream() {
+    const chain = CHAIN_CONFIG[CURRENT_CHAIN].goldrushChain;
+    console.log(`Starting GoldRush Stream on: ${chain}`);
+
     goldrushClient.StreamingService.subscribeToOHLCVTokens(
         {
-            chain_name: StreamingChain.SOLANA_MAINNET,
+            chain_name: chain,
             token_addresses: [TOKEN_ADDRESS],
-            interval: StreamingInterval.ONE_SECOND,
-            timeframe: StreamingTimeframe.ONE_HOUR,
+            interval: StreamingInterval.ONE_MINUTE,
+            timeframe: StreamingTimeframe.FIFTEEN_MINUTES,
         },
         {
             next: (data) => {
@@ -776,7 +976,7 @@ async function init() {
     // 2. Get Initial Price using Codex
     try {
         const now = Math.floor(Date.now() / 1000);
-        const lookback = now - 3600; // Get last hour
+        const lookback = now - 900; // Get last 15 minutes
         const query = `
             query {
                 getBars(
@@ -814,7 +1014,7 @@ async function init() {
     }
 
     startStream();
-    startCodexPolling();
+    initCodexProvider();
     startGeckoStream();
 
     server.listen(PORT, () => {

@@ -1,11 +1,17 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Zap } from 'lucide-react';
+import { Zap, BarChart3 } from 'lucide-react';
 import Dashboard from './components/Dashboard';
+import StatsPage from './components/StatsPage';
 import TokenSelector from './components/TokenSelector';
 
 function App() {
   const [socket, setSocket] = useState(null);
   const [connected, setConnected] = useState(false);
+  const [showStats, setShowStats] = useState(false);
+  const [currentTimeframe, setCurrentTimeframe] = useState('1m');
+  const [switchingTimeframe, setSwitchingTimeframe] = useState(false);
+
+  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3002';
 
   const [marketState, setMarketState] = useState({
     goldrush: { ticks: {}, trades: [], logs: [] },
@@ -43,8 +49,36 @@ function App() {
 
   useEffect(() => {
     const cleanup = connectWebSocket();
+    fetchTimeframe();
     return cleanup;
   }, []);
+
+  const fetchTimeframe = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/timeframe`);
+      const data = await res.json();
+      setCurrentTimeframe(data.current);
+    } catch (err) {
+      console.error('Failed to fetch timeframe:', err);
+    }
+  };
+
+  const switchTimeframe = async (tf) => {
+    if (tf === currentTimeframe || switchingTimeframe) return;
+    setSwitchingTimeframe(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/timeframe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timeframe: tf })
+      });
+      if (res.ok) setCurrentTimeframe(tf);
+    } catch (err) {
+      console.error('Failed to switch timeframe:', err);
+    } finally {
+      setSwitchingTimeframe(false);
+    }
+  };
 
   const handleMessage = (msg) => {
     // Log incoming messages for debugging
@@ -258,9 +292,31 @@ function App() {
               <span className="ml-2 text-xs font-mono bg-purple-500/20 px-2 py-1 rounded text-purple-400 border border-purple-500/30">{currentSymbol} (Solana)</span>
             </h1>
             <TokenSelector />
+            <div className="flex items-center gap-1 ml-4 bg-white/5 rounded-lg p-1 border border-white/10">
+              {['1m', '5m', '15m'].map(tf => (
+                <button
+                  key={tf}
+                  onClick={() => switchTimeframe(tf)}
+                  disabled={switchingTimeframe}
+                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${currentTimeframe === tf
+                    ? 'bg-primary text-white'
+                    : 'text-muted-foreground hover:bg-white/10'
+                    } ${switchingTimeframe ? 'opacity-50' : ''}`}
+                >
+                  {tf}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="flex items-center gap-4">
+            <button
+              onClick={() => setShowStats(!showStats)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${showStats ? 'bg-primary/20 border-primary/30 text-primary' : 'bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10'}`}
+            >
+              <BarChart3 size={14} />
+              {showStats ? 'Dashboard' : 'Stats'}
+            </button>
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${connected ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
               <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
               {connected ? 'SYSTEM ONLINE' : 'DISCONNECTED'}
@@ -271,7 +327,11 @@ function App() {
 
       {/* Main Content */}
       <main className="max-w-[1600px] mx-auto p-6">
-        <Dashboard state={marketState} />
+        {showStats ? (
+          <StatsPage onBack={() => setShowStats(false)} />
+        ) : (
+          <Dashboard state={marketState} />
+        )}
       </main>
     </div>
   );
