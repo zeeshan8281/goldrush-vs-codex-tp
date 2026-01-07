@@ -180,12 +180,11 @@ function StatsPage({ onBack }) {
     const { uptime, history, latencyRace } = stats;
     console.log('📊 STATS DEBUG:', stats);
 
-    // Map the new API structure (goldrush, codex, gecko at top level) to providers object
-    // Map the new API structure (goldrush, codex, gecko at top level) to providers object
+    // Map the new API structure to providers object with all metrics
     const providers = {
-        goldrush: { ...stats.goldrush, throughput: stats.throughput?.goldrush || 0 },
-        codex: { ...stats.codex, throughput: stats.throughput?.codex || 0 },
-        gecko: { ...stats.gecko, throughput: stats.throughput?.gecko || 0 }
+        goldrush: { ...stats.goldrush, throughput: stats.throughput?.goldrush || 0, avgLatency300: stats.avgLatency300?.goldrush || 0 },
+        codex: { ...stats.codex, throughput: stats.throughput?.codex || 0, avgLatency300: stats.avgLatency300?.codex || 0 },
+        gecko: { ...stats.gecko, throughput: stats.throughput?.gecko || 0, avgLatency300: stats.avgLatency300?.gecko || 0 }
     };
 
     const ProviderCard = ({ name, data, color }) => {
@@ -234,6 +233,12 @@ function StatsPage({ onBack }) {
                     <div className="stat">
                         <span className="label">W/L</span>
                         <span className="value">{data.wins}/{data.losses}</span>
+                    </div>
+                    <div className="stat">
+                        <span className="label">Avg Latency (300)</span>
+                        <span className="value" style={{ color: '#888' }}>
+                            {data.avgLatency300 > 0 ? `${(data.avgLatency300 / 1000).toFixed(1)}s` : 'N/A'}
+                        </span>
                     </div>
                 </div>
             </div>

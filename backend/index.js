@@ -207,6 +207,34 @@ let latencyStats = {
     gecko: { sum: 0, count: 0 }
 };
 
+// Rolling latency over last 300 candles per provider
+let latency300 = {
+    goldrush: { samples: [], sum: 0 },
+    codex: { samples: [], sum: 0 },
+    gecko: { samples: [], sum: 0 }
+};
+
+// Helper to add a latency sample (rolling window of 300)
+function addLatencySample(provider, latency) {
+    const data = latency300[provider];
+    if (!data) return;
+
+    data.samples.push(latency);
+    data.sum += latency;
+
+    // Keep only last 300 samples
+    if (data.samples.length > 300) {
+        const removed = data.samples.shift();
+        data.sum -= removed;
+    }
+}
+
+function getAvgLatency300(provider) {
+    const data = latency300[provider];
+    if (!data || data.samples.length === 0) return 0;
+    return Math.round(data.sum / data.samples.length);
+}
+
 // Reset counters every second
 setInterval(() => {
     currentThroughput = { ...throughputCounters };
@@ -295,11 +323,16 @@ app.get('/stats', (req, res) => {
         codex: calcStats(codexTrading),
         gecko: calcStats(geckoTrading),
         history: performanceHistory,
-        throughput: currentThroughput, // Add live throughput data
+        throughput: currentThroughput,
         latencyRace: {
             goldrush: { avgLatency: latestLatency.goldrush },
             codex: { avgLatency: latestLatency.codex },
             gecko: { avgLatency: latestLatency.gecko }
+        },
+        avgLatency300: {
+            goldrush: getAvgLatency300('goldrush'),
+            codex: getAvgLatency300('codex'),
+            gecko: getAvgLatency300('gecko')
         }
     });
 });
@@ -601,6 +634,7 @@ async function processGoldrushCandles(candles) {
     // Track Latency
     latencyStats.goldrush.sum += goldRushLatency;
     latencyStats.goldrush.count++;
+    addLatencySample('goldrush', goldRushLatency);
 
     logger.goldrush.stream(price, goldRushLatency, candles.length);
     countUpdate('goldrush'); // Track Hz
@@ -747,6 +781,7 @@ function processCodexUpdate(barData) {
     // Track Latency
     latencyStats.codex.sum += latency;
     latencyStats.codex.count++;
+    addLatencySample('codex', latency);
 
     logger.codex.stream(codexPrice, latency, codexCandles.length);
     countUpdate('codex'); // Track Hz
@@ -965,6 +1000,7 @@ function processGeckoUpdate(data) {
     // Track Latency
     latencyStats.gecko.sum += latency;
     latencyStats.gecko.count++;
+    addLatencySample('gecko', latency);
 
     logger.gecko.stream(price, latency, geckoCandles.length);
     countUpdate('gecko'); // Track Hz
