@@ -182,9 +182,9 @@ function StatsPage({ onBack }) {
 
     // Map the new API structure to providers object with all metrics
     const providers = {
-        goldrush: { ...stats.goldrush, throughput: stats.throughput?.goldrush || 0, avgLatency300: stats.avgLatency300?.goldrush || 0 },
-        codex: { ...stats.codex, throughput: stats.throughput?.codex || 0, avgLatency300: stats.avgLatency300?.codex || 0 },
-        gecko: { ...stats.gecko, throughput: stats.throughput?.gecko || 0, avgLatency300: stats.avgLatency300?.gecko || 0 }
+        goldrush: { ...stats.goldrush, throughput: stats.throughput?.goldrush || 0, avgLatency300: stats.avgLatency300?.goldrush || 0, candlesPerMin: stats.candlesPerMinute?.goldrush || 0 },
+        codex: { ...stats.codex, throughput: stats.throughput?.codex || 0, avgLatency300: stats.avgLatency300?.codex || 0, candlesPerMin: stats.candlesPerMinute?.codex || 0 },
+        gecko: { ...stats.gecko, throughput: stats.throughput?.gecko || 0, avgLatency300: stats.avgLatency300?.gecko || 0, candlesPerMin: stats.candlesPerMinute?.gecko || 0 }
     };
 
     const ProviderCard = ({ name, data, color }) => {
@@ -238,6 +238,12 @@ function StatsPage({ onBack }) {
                         <span className="label">Avg Latency (300)</span>
                         <span className="value" style={{ color: '#888' }}>
                             {data.avgLatency300 > 0 ? `${(data.avgLatency300 / 1000).toFixed(1)}s` : 'N/A'}
+                        </span>
+                    </div>
+                    <div className="stat">
+                        <span className="label">Candles/Min</span>
+                        <span className="value" style={{ color: '#22c55e' }}>
+                            {data.candlesPerMin}
                         </span>
                     </div>
                 </div>

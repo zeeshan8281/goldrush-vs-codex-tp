@@ -325,6 +325,11 @@ app.get('/stats', (req, res) => {
         gecko: calcStats(geckoTrading),
         history: performanceHistory,
         throughput: currentThroughput,
+        candlesPerMinute: {
+            goldrush: currentThroughput.goldrush * 60,
+            codex: currentThroughput.codex * 60,
+            gecko: currentThroughput.gecko * 60
+        },
         latencyRace: {
             goldrush: { avgLatency: latestLatency.goldrush },
             codex: { avgLatency: latestLatency.codex },
