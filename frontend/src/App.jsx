@@ -314,7 +314,7 @@ function App() {
               <span className="ml-3 text-xs font-mono bg-white/5 px-2 py-1 rounded text-primary">TP SIMULATOR</span>
               <span className="ml-2 text-xs font-mono bg-purple-500/20 px-2 py-1 rounded text-purple-400 border border-purple-500/30">{currentSymbol} ({currentChain})</span>
             </h1>
-            <TokenSelector />
+            <TokenSelector onChainChange={(chain) => setCurrentChain(chain === 'BASE' ? 'Base' : 'Solana')} />
             <div className="flex items-center gap-1 ml-4 bg-white/5 rounded-lg p-1 border border-white/10">
               {['1m', '5m', '15m'].map(tf => (
                 <button

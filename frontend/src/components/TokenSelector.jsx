@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 
-const TokenSelector = () => {
+const TokenSelector = ({ onChainChange }) => {
     const [address, setAddress] = useState('DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'); // Default BONK
     const [chain, setChain] = useState('SOLANA');
     const [loading, setLoading] = useState(false);
@@ -21,6 +21,10 @@ const TokenSelector = () => {
             const data = await res.json();
             if (data.success && data.chain) {
                 setChain(data.chain);
+                // Notify parent component about chain change
+                if (onChainChange) {
+                    onChainChange(data.chain);
+                }
             }
         } catch (err) {
             console.error("Failed to update token:", err);
