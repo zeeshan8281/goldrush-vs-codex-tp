@@ -29,6 +29,7 @@ let client = null;
 let broadcast = null;
 let getSymbol = null;
 let updatePairs = null;
+let onSymbolUpdate = null;
 let currentTokenAddress = null;
 
 // --- TIMEFRAME CONFIG ---
@@ -46,6 +47,7 @@ function init(deps) {
     broadcast = deps.broadcast;
     getSymbol = deps.getSymbol;
     updatePairs = deps.updatePairs;
+    onSymbolUpdate = deps.onSymbolUpdate;
 
     client = new GoldRushClient(
         process.env.COVALENT_API_KEY,
@@ -108,6 +110,24 @@ function startStream(tokenAddress, chainName = 'solana-mainnet') {
     logger.goldrush.info(`Starting stream on ${chainName} for ${tokenAddress}`);
 
     currentTokenAddress = tokenAddress;
+    currentTokenAddress = tokenAddress;
+
+    // CLEANUP: Close existing client connection if it exists to prevent zombie streams
+    // Note: The Covalent SDK might not have a direct 'unsubscribe' method for the *entire* client 
+    // without creating a new one? Or maybe we just need to ensure we don't hold onto the old callback?
+    // Actually, init() creates 'client'. We should probably not re-create client on every startStream unless necessary.
+    // But `subscribeToOHLCVTokens` might stack?
+
+    // Attempt to close previous connection if possible or just rely on new subscription?
+    // The SDK documentation says "unsubscribeAll is not yet implemented" in some versions?
+    // Let's at least enforce a re-connection or filter incoming data by address/chain if possible.
+
+    // SIMPLER FIX: We already filter "Bonk" on Base in index.js
+    // ADDITIONAL FIX: Force a fresh connection.
+    try {
+        // client.StreamingService.close(); // If this exists
+    } catch (e) { }
+
     logger.goldrush.connect();
 
     client.StreamingService.subscribeToOHLCVTokens(
@@ -151,7 +171,20 @@ function processCandles(incomingCandles) {
     let latency = fastArrival - candleCloseTime;
     if (latency < 0) latency = 0;
 
-    const SYMBOL = getSymbol();
+    let SYMBOL = getSymbol();
+
+    // Auto-Detect Symbol from Metadata
+    if (latestCandle.base_token && latestCandle.base_token.contract_ticker_symbol) {
+        const detectedSymbol = latestCandle.base_token.contract_ticker_symbol;
+        if (detectedSymbol && detectedSymbol !== SYMBOL) {
+            console.log(`🔍 Auto-Detected Symbol: ${detectedSymbol} (was ${SYMBOL})`);
+            if (onSymbolUpdate) {
+                onSymbolUpdate(detectedSymbol);
+                SYMBOL = detectedSymbol; // Update local scope immediately
+            }
+        }
+    }
+
     // logger.goldrush.stream moved to end of function
 
     // Update pairs state

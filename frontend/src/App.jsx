@@ -10,6 +10,7 @@ function App() {
   const [showStats, setShowStats] = useState(false);
   const [currentTimeframe, setCurrentTimeframe] = useState('1m');
   const [switchingTimeframe, setSwitchingTimeframe] = useState(false);
+  const [currentChain, setCurrentChain] = useState('Solana'); // Track current chain
 
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3002';
 
@@ -271,6 +272,28 @@ function App() {
           ideas: []
         });
         console.log("♻️ State Reset for new token:", msg.data.pair);
+        // Update chain based on RESET data
+        if (msg.data.chain) {
+          setCurrentChain(msg.data.chain === 'BASE' ? 'Base' : 'Solana');
+        }
+        break;
+      case 'SYMBOL_UPDATE':
+        console.log("🔀 Symbol Updated:", msg.data.symbol);
+        // We rely on derived state "currentSymbol" which looks at marketState.ticks keys.
+        // But for immediate UI feedback without waiting for a tick:
+        setMarketState(prev => {
+          // Rename the key in ticks if it exists
+          const oldSymbol = Object.keys(prev.ticks)[0];
+          const newTicks = { ...prev.ticks };
+          if (oldSymbol && oldSymbol !== msg.data.symbol) {
+            newTicks[msg.data.symbol] = newTicks[oldSymbol];
+            delete newTicks[oldSymbol];
+          }
+          return {
+            ...prev,
+            ticks: newTicks
+          };
+        });
         break;
       default:
         break;
@@ -289,7 +312,7 @@ function App() {
             <h1 className="font-bold text-xl tracking-tight">
               GoldRush <span className="text-muted-foreground">&</span> Codex
               <span className="ml-3 text-xs font-mono bg-white/5 px-2 py-1 rounded text-primary">TP SIMULATOR</span>
-              <span className="ml-2 text-xs font-mono bg-purple-500/20 px-2 py-1 rounded text-purple-400 border border-purple-500/30">{currentSymbol} (Solana)</span>
+              <span className="ml-2 text-xs font-mono bg-purple-500/20 px-2 py-1 rounded text-purple-400 border border-purple-500/30">{currentSymbol} ({currentChain})</span>
             </h1>
             <TokenSelector />
             <div className="flex items-center gap-1 ml-4 bg-white/5 rounded-lg p-1 border border-white/10">

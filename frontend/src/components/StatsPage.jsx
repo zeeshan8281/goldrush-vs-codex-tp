@@ -147,6 +147,15 @@ function StatsPage({ onBack }) {
         return () => clearInterval(interval);
     }, []);
 
+    // Helper to format uptime from milliseconds
+    const formatUptime = (ms) => {
+        if (!ms || ms <= 0) return '0s';
+        const h = Math.floor(ms / 3600000);
+        const m = Math.floor((ms % 3600000) / 60000);
+        const s = Math.floor((ms % 60000) / 1000);
+        return `${h}h ${m}m ${s}s`;
+    };
+
     // Create/update chart when history changes
     // Chart logic moved to ProviderChart component
 
@@ -238,7 +247,7 @@ function StatsPage({ onBack }) {
                 <h1><BarChart3 size={24} /> Performance Statistics</h1>
                 <div className="uptime">
                     <Clock size={16} />
-                    Uptime: {uptime.formatted}
+                    Uptime: {formatUptime(uptime)}
                 </div>
             </header>
 
