@@ -231,7 +231,8 @@ function addLatencySample(provider, latency) {
 
 function getAvgLatency300(provider) {
     const data = latency300[provider];
-    if (!data || data.samples.length === 0) return 0;
+    // Only return average once we have 300 samples
+    if (!data || data.samples.length < 300) return 0;
     return Math.round(data.sum / data.samples.length);
 }
 
