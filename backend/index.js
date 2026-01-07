@@ -584,6 +584,8 @@ function checkGeckoTrade(currentPrice) {
     }
 }
 
+
+
 // --- GOLDRUSH: Process OHLCV Candles ---
 async function processGoldrushCandles(candles) {
     const fastArrival = Date.now();
@@ -632,8 +634,8 @@ async function processGoldrushCandles(candles) {
     }
 
     const candleTimeMs = new Date(latestCandle.timestamp).getTime();
-    // For ONE_MINUTE interval, candle close time is candleStart + 60 seconds
-    const candleCloseTime = candleTimeMs + 60000;
+    // For ONE_SECOND interval, candle close time is candleStart + 1 second
+    const candleCloseTime = candleTimeMs + 1000;
     let goldRushLatency = fastArrival - candleCloseTime;
     if (goldRushLatency < 0) goldRushLatency = 0;
 
@@ -1062,19 +1064,18 @@ function startStream() {
     const chain = CHAIN_CONFIG[CURRENT_CHAIN].goldrushChain;
     console.log(`Starting GoldRush Stream on: ${chain}`);
 
-    // Store cleanup reference
+    // Use OHLCV for tokens streaming
     goldrushCleanup = client.StreamingService.subscribeToOHLCVTokens(
         {
             chain_name: chain,
             token_addresses: [TOKEN_ADDRESS],
-            interval: StreamingInterval.ONE_MINUTE,
+            interval: StreamingInterval.ONE_SECOND,
             timeframe: StreamingTimeframe.FIFTEEN_MINUTES,
         },
         {
             next: (data) => {
                 const candles = Array.isArray(data) ? data : [data];
                 if (candles && candles.length > 0) {
-                    // Validate this data is for current token/chain
                     const latestCandle = candles[candles.length - 1];
                     if (latestCandle.base_token?.contract_ticker_symbol) {
                         const sym = latestCandle.base_token.contract_ticker_symbol;
