@@ -7,7 +7,7 @@ const TokenSelector = () => {
     const [loading, setLoading] = useState(false);
 
     // Use environment variable for backend URL, fallback to localhost
-    const API_URL = import.meta.env.VITE_WS_URL ? import.meta.env.VITE_WS_URL.replace('ws://', 'http://').replace('wss://', 'https://') : 'http://localhost:3002';
+    const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3002';
 
     const handleUpdate = async () => {
         if (!address) return;

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { createChart } from 'lightweight-charts';
 import { TrendingUp, TrendingDown, Trophy, Clock, Activity, BarChart3 } from 'lucide-react';
 
-const BACKEND_URL = 'http://localhost:3002';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3002';
 
 const ProviderChart = ({ title, providerKey, history, color }) => {
     const containerRef = useRef(null);
