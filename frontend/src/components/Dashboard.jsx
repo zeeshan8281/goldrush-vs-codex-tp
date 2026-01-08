@@ -42,9 +42,21 @@ export default function Dashboard({ state }) {
         };
     };
 
-    const grPnL = formatPnL(totalGoldRushPnL);
-    const cxPnL = formatPnL(totalCodexPnL);
-    const gkPnL = formatPnL(totalGeckoPnL);
+    // Throughput (Avg Candles/Sec)
+    const grThroughput = goldrushTick?.throughput || 0;
+    const cxThroughput = codexTick?.throughput || 0;
+    const gkThroughput = geckoTick?.throughput || 0;
+
+    const formatThroughput = (val) => ({
+        text: val > 0 ? `${val} /s` : '0 /s',
+        subtext: 'Avg Candles',
+        color: 'text-gray-200',
+        bgColor: 'bg-white/5 border-white/10'
+    });
+
+    const grStats = formatThroughput(grThroughput);
+    const cxStats = formatThroughput(cxThroughput);
+    const gkStats = formatThroughput(gkThroughput);
 
     return (
         // MAIN GRID: 3 Columns, Fixed Height
@@ -63,11 +75,11 @@ export default function Dashboard({ state }) {
                                 <h2 className="text-primary font-bold text-lg tracking-wide">GOLDRUSH</h2>
                                 <span className="bg-primary/20 text-primary text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LIVE</span>
                             </div>
-                            {/* Cumulative PnL Badge */}
-                            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${grPnL.bgColor}`}>
-                                <grPnL.icon className={`w-4 h-4 ${grPnL.color}`} />
+                            {/* Throughput Badge (Replaces PnL) */}
+                            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${grStats.bgColor}`}>
+                                <Zap className={`w-4 h-4 ${grStats.color}`} />
                                 <div className="text-right">
-                                    <div className={`text-lg font-bold font-mono ${grPnL.color}`}>{grPnL.text}</div>
+                                    <div className={`text-lg font-bold font-mono ${grStats.color}`}>{grStats.text}</div>
                                     <div className="text-[10px] text-gray-400">{goldrushTradeCount} trades</div>
                                 </div>
                             </div>
@@ -112,11 +124,11 @@ export default function Dashboard({ state }) {
                                 <h2 className="text-muted-foreground font-bold text-lg tracking-wide">CODEX</h2>
                                 <span className="bg-white/10 text-muted-foreground text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LIVE</span>
                             </div>
-                            {/* Cumulative PnL Badge */}
-                            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${cxPnL.bgColor}`}>
-                                <cxPnL.icon className={`w-4 h-4 ${cxPnL.color}`} />
+                            {/* Throughput Badge (Replaces PnL) */}
+                            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${cxStats.bgColor}`}>
+                                <Database className={`w-4 h-4 ${cxStats.color}`} />
                                 <div className="text-right">
-                                    <div className={`text-lg font-bold font-mono ${cxPnL.color}`}>{cxPnL.text}</div>
+                                    <div className={`text-lg font-bold font-mono ${cxStats.color}`}>{cxStats.text}</div>
                                     <div className="text-[10px] text-gray-400">{codexTradeCount} trades</div>
                                 </div>
                             </div>
@@ -160,11 +172,11 @@ export default function Dashboard({ state }) {
                                 <h2 className="text-emerald-400 font-bold text-lg tracking-wide">GECKO</h2>
                                 <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">LIVE</span>
                             </div>
-                            {/* Cumulative PnL Badge */}
-                            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${gkPnL.bgColor}`}>
-                                <gkPnL.icon className={`w-4 h-4 ${gkPnL.color}`} />
+                            {/* Throughput Badge (Replaces PnL) */}
+                            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${gkStats.bgColor}`}>
+                                <div className="w-4 h-4 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-500 text-[10px]">avg</div>
                                 <div className="text-right">
-                                    <div className={`text-lg font-bold font-mono ${gkPnL.color}`}>{gkPnL.text}</div>
+                                    <div className={`text-lg font-bold font-mono ${gkStats.color}`}>{gkStats.text}</div>
                                     <div className="text-[10px] text-gray-400">{geckoTradeCount} trades</div>
                                 </div>
                             </div>
