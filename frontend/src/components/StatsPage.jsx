@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { createChart } from 'lightweight-charts';
-import { TrendingUp, TrendingDown, Trophy, Clock, Activity, BarChart3, Zap, Timer, Shield, Gauge } from 'lucide-react';
+import { TrendingUp, TrendingDown, Trophy, Clock, Activity, BarChart3, Zap, Timer, Shield, Gauge, Info } from 'lucide-react';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3002';
 
@@ -12,7 +12,7 @@ const COLORS = {
 };
 
 // Comparison Chart with 3 lines
-const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '' }) => {
+const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '', formula = '' }) => {
     const containerRef = useRef(null);
     const chartRef = useRef(null);
     const seriesRefs = useRef({});
@@ -87,6 +87,12 @@ const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '' }) =
             <div className="chart-header">
                 {Icon && <Icon size={18} />}
                 <span className="chart-title">{title}</span>
+                {formula && (
+                    <div className="info-tooltip-wrapper">
+                        <Info size={14} className="info-icon" />
+                        <div className="info-tooltip">{formula}</div>
+                    </div>
+                )}
             </div>
             <div className="chart-container" ref={containerRef} />
             <div className="chart-legend">
@@ -183,6 +189,7 @@ function StatsPage({ onBack }) {
                     history={metricsHistory}
                     icon={Timer}
                     unit="ms"
+                    formula="Time from connection start to first data received (ms)"
                 />
                 <ComparisonChart
                     title="Candles per Second"
@@ -190,13 +197,15 @@ function StatsPage({ onBack }) {
                     history={metricsHistory}
                     icon={Zap}
                     unit="/s"
+                    formula="Rolling average of candles received per second over last 60s"
                 />
                 <ComparisonChart
-                    title="Stability"
+                    title="Latency Stability Score"
                     metricKey="stability"
                     history={metricsHistory}
                     icon={Shield}
                     unit="%"
+                    formula="100 - (avgDelta / 50s × 100) - (avgLatency / 60s × 30). Higher = faster & more consistent"
                 />
                 <ComparisonChart
                     title="Latency per 300 Candles"
@@ -204,6 +213,7 @@ function StatsPage({ onBack }) {
                     history={metricsHistory}
                     icon={Gauge}
                     unit="ms"
+                    formula="Rolling average of (now - candleTimestamp) over last 300 samples. Lower = fresher data"
                 />
             </div>
 
@@ -298,6 +308,47 @@ function StatsPage({ onBack }) {
                     color: #fff;
                     font-weight: 600;
                     font-size: 1rem;
+                }
+                
+                .info-tooltip-wrapper {
+                    position: relative;
+                    display: inline-flex;
+                    margin-left: auto;
+                }
+                
+                .info-icon {
+                    color: #666;
+                    cursor: help;
+                    transition: color 0.2s;
+                }
+                
+                .info-icon:hover {
+                    color: #3b82f6;
+                }
+                
+                .info-tooltip {
+                    position: absolute;
+                    top: 100%;
+                    right: 0;
+                    margin-top: 8px;
+                    background: #1a1a1a;
+                    border: 1px solid #333;
+                    border-radius: 8px;
+                    padding: 10px 14px;
+                    font-size: 0.75rem;
+                    font-weight: 400;
+                    color: #aaa;
+                    white-space: nowrap;
+                    opacity: 0;
+                    visibility: hidden;
+                    transition: all 0.2s;
+                    z-index: 100;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                }
+                
+                .info-tooltip-wrapper:hover .info-tooltip {
+                    opacity: 1;
+                    visibility: visible;
                 }
                 
                 .chart-container {

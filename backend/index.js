@@ -225,6 +225,56 @@ let connectionMetrics = {
     gecko: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null }
 };
 
+// --- LATENCY DELTA TRACKING (for stability score) ---
+// Track previous latency and deltas for each provider
+let latencyDelta = {
+    goldrush: { prevLatency: null, deltas: [], sum: 0 },
+    codex: { prevLatency: null, deltas: [], sum: 0 },
+    gecko: { prevLatency: null, deltas: [], sum: 0 }
+};
+
+const MAX_ACCEPTABLE_DELTA = 50000; // 50 seconds max delta for 0% stability
+
+// Helper to add a latency delta sample
+function addLatencyDelta(provider, currentLatency) {
+    const data = latencyDelta[provider];
+    if (!data) return;
+
+    if (data.prevLatency !== null) {
+        const delta = Math.abs(currentLatency - data.prevLatency);
+        data.deltas.push(delta);
+        data.sum += delta;
+
+        // Keep only last 100 deltas
+        if (data.deltas.length > 100) {
+            const removed = data.deltas.shift();
+            data.sum -= removed;
+        }
+    }
+    data.prevLatency = currentLatency;
+}
+
+// Get stability score (0-100, higher = more stable AND fast)
+// Combines: consistency (low delta variance) + speed (low avg latency)
+function getStabilityScore(provider) {
+    const data = latencyDelta[provider];
+    if (!data || data.deltas.length === 0) return 100; // No data = assume stable
+
+    // 1. Delta Score (consistency) - max 100 points
+    const avgDelta = data.sum / data.deltas.length;
+    const deltaScore = Math.max(0, 100 - (avgDelta / MAX_ACCEPTABLE_DELTA * 100));
+
+    // 2. Latency Penalty (speed) - max 30 point penalty
+    const MAX_LATENCY_FOR_PENALTY = 60000; // 60 seconds
+    const PENALTY_WEIGHT = 30; // Max points to deduct
+    const avgLatency = getAvgLatency300(provider);
+    const latencyPenalty = Math.min(PENALTY_WEIGHT, (avgLatency / MAX_LATENCY_FOR_PENALTY) * PENALTY_WEIGHT);
+
+    // Final score = consistency - speed penalty
+    const score = Math.max(0, deltaScore - latencyPenalty);
+    return Math.round(score);
+}
+
 // Time-series history for charts (last 5 min, sampled every 5s = 60 points)
 let metricsHistory = [];
 
@@ -320,25 +370,19 @@ setInterval(() => {
         goldrush: {
             loadTime: connectionMetrics.goldrush.loadTime,
             candlesPerSec: avgCandlesPerSecond.goldrush,
-            stability: connectionMetrics.goldrush.connects > 0
-                ? Math.round((1 - connectionMetrics.goldrush.errors / connectionMetrics.goldrush.connects) * 100)
-                : 100,
+            stability: getStabilityScore('goldrush'),
             latency300: getAvgLatency300('goldrush')
         },
         codex: {
             loadTime: connectionMetrics.codex.loadTime,
             candlesPerSec: avgCandlesPerSecond.codex,
-            stability: connectionMetrics.codex.connects > 0
-                ? Math.round((1 - connectionMetrics.codex.errors / connectionMetrics.codex.connects) * 100)
-                : 100,
+            stability: getStabilityScore('codex'),
             latency300: getAvgLatency300('codex')
         },
         gecko: {
             loadTime: connectionMetrics.gecko.loadTime,
             candlesPerSec: avgCandlesPerSecond.gecko,
-            stability: connectionMetrics.gecko.connects > 0
-                ? Math.round((1 - connectionMetrics.gecko.errors / connectionMetrics.gecko.connects) * 100)
-                : 100,
+            stability: getStabilityScore('gecko'),
             latency300: getAvgLatency300('gecko')
         }
     };
@@ -414,25 +458,19 @@ app.get('/metrics-history', (req, res) => {
             goldrush: {
                 loadTime: connectionMetrics.goldrush.loadTime,
                 candlesPerSec: avgCandlesPerSecond.goldrush,
-                stability: connectionMetrics.goldrush.connects > 0
-                    ? Math.round((1 - connectionMetrics.goldrush.errors / connectionMetrics.goldrush.connects) * 100)
-                    : 100,
+                stability: getStabilityScore('goldrush'),
                 latency300: getAvgLatency300('goldrush')
             },
             codex: {
                 loadTime: connectionMetrics.codex.loadTime,
                 candlesPerSec: avgCandlesPerSecond.codex,
-                stability: connectionMetrics.codex.connects > 0
-                    ? Math.round((1 - connectionMetrics.codex.errors / connectionMetrics.codex.connects) * 100)
-                    : 100,
+                stability: getStabilityScore('codex'),
                 latency300: getAvgLatency300('codex')
             },
             gecko: {
                 loadTime: connectionMetrics.gecko.loadTime,
                 candlesPerSec: avgCandlesPerSecond.gecko,
-                stability: connectionMetrics.gecko.connects > 0
-                    ? Math.round((1 - connectionMetrics.gecko.errors / connectionMetrics.gecko.connects) * 100)
-                    : 100,
+                stability: getStabilityScore('gecko'),
                 latency300: getAvgLatency300('gecko')
             }
         }
@@ -741,6 +779,7 @@ async function processGoldrushCandles(candles) {
     latencyStats.goldrush.sum += goldRushLatency;
     latencyStats.goldrush.count++;
     addLatencySample('goldrush', goldRushLatency);
+    addLatencyDelta('goldrush', goldRushLatency);
     latestLatency.goldrush = goldRushLatency;
 
     logger.goldrush.stream(price, goldRushLatency, candles.length);
@@ -906,6 +945,7 @@ function processCodexUpdate(barData) {
     latencyStats.codex.sum += latency;
     latencyStats.codex.count++;
     addLatencySample('codex', latency);
+    addLatencyDelta('codex', latency);
     latestLatency.codex = latency;
 
     logger.codex.stream(codexPrice, latency, codexCandles.length);
@@ -1140,6 +1180,7 @@ function processGeckoUpdate(data) {
     latencyStats.gecko.sum += latency;
     latencyStats.gecko.count++;
     addLatencySample('gecko', latency);
+    addLatencyDelta('gecko', latency);
     latestLatency.gecko = latency;
 
     logger.gecko.stream(price, latency, geckoCandles.length);
