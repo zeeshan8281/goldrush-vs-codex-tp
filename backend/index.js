@@ -201,6 +201,9 @@ app.post('/api/timeframe', (req, res) => {
 // Count updates per second
 let throughputCounters = { goldrush: 0, codex: 0, gecko: 0 };
 let currentThroughput = { goldrush: 0, codex: 0, gecko: 0 };
+let throughputHistory = { goldrush: [], codex: [], gecko: [] };
+let avgCandlesPerSecond = { goldrush: 0, codex: 0, gecko: 0 };
+
 let latencyStats = {
     goldrush: { sum: 0, count: 0 },
     codex: { sum: 0, count: 0 },
@@ -213,6 +216,67 @@ let latency300 = {
     codex: { samples: [], sum: 0 },
     gecko: { samples: [], sum: 0 }
 };
+
+// --- METRICS HISTORY FOR COMPARISON CHARTS ---
+// Track connection/load time for each provider
+let connectionMetrics = {
+    goldrush: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null },
+    codex: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null },
+    gecko: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null }
+};
+
+// --- LATENCY DELTA TRACKING (for stability score) ---
+// Track previous latency and deltas for each provider
+let latencyDelta = {
+    goldrush: { prevLatency: null, deltas: [], sum: 0 },
+    codex: { prevLatency: null, deltas: [], sum: 0 },
+    gecko: { prevLatency: null, deltas: [], sum: 0 }
+};
+
+const MAX_ACCEPTABLE_DELTA = 50000; // 50 seconds max delta for 0% stability
+
+// Helper to add a latency delta sample
+function addLatencyDelta(provider, currentLatency) {
+    const data = latencyDelta[provider];
+    if (!data) return;
+
+    if (data.prevLatency !== null) {
+        const delta = Math.abs(currentLatency - data.prevLatency);
+        data.deltas.push(delta);
+        data.sum += delta;
+
+        // Keep only last 100 deltas
+        if (data.deltas.length > 100) {
+            const removed = data.deltas.shift();
+            data.sum -= removed;
+        }
+    }
+    data.prevLatency = currentLatency;
+}
+
+// Get stability score (0-100, higher = more stable AND fast)
+// Combines: consistency (low delta variance) + speed (low avg latency)
+function getStabilityScore(provider) {
+    const data = latencyDelta[provider];
+    if (!data || data.deltas.length === 0) return 100; // No data = assume stable
+
+    // 1. Delta Score (consistency) - max 100 points
+    const avgDelta = data.sum / data.deltas.length;
+    const deltaScore = Math.max(0, 100 - (avgDelta / MAX_ACCEPTABLE_DELTA * 100));
+
+    // 2. Latency Penalty (speed) - max 30 point penalty
+    const MAX_LATENCY_FOR_PENALTY = 60000; // 60 seconds
+    const PENALTY_WEIGHT = 30; // Max points to deduct
+    const avgLatency = getAvgLatency300(provider);
+    const latencyPenalty = Math.min(PENALTY_WEIGHT, (avgLatency / MAX_LATENCY_FOR_PENALTY) * PENALTY_WEIGHT);
+
+    // Final score = consistency - speed penalty
+    const score = Math.max(0, deltaScore - latencyPenalty);
+    return Math.round(score);
+}
+
+// Time-series history for charts (last 5 min, sampled every 5s = 60 points)
+let metricsHistory = [];
 
 // Helper to add a latency sample (rolling window of 300)
 function addLatencySample(provider, latency) {
@@ -231,18 +295,36 @@ function addLatencySample(provider, latency) {
 
 function getAvgLatency300(provider) {
     const data = latency300[provider];
-    // Only return average once we have 300 samples
-    if (!data || data.samples.length < 300) return 0;
+    if (!data || data.samples.length === 0) return 0;
     return Math.round(data.sum / data.samples.length);
 }
 
-// Reset counters every second
+// Reset counters every second and calculate rolling average
 setInterval(() => {
     currentThroughput = { ...throughputCounters };
+
+    // Update rolling history (last 60 seconds)
+    ['goldrush', 'codex', 'gecko'].forEach(p => {
+        throughputHistory[p].push(currentThroughput[p]);
+        if (throughputHistory[p].length > 60) throughputHistory[p].shift();
+
+        // Calculate average
+        const sum = throughputHistory[p].reduce((a, b) => a + b, 0);
+        avgCandlesPerSecond[p] = throughputHistory[p].length > 0
+            ? parseFloat((sum / throughputHistory[p].length).toFixed(2))
+            : 0;
+    });
+
     throughputCounters = { goldrush: 0, codex: 0, gecko: 0 };
 
     if (isRunning) {
-        broadcast({ type: 'METRICS_UPDATE', data: currentThroughput });
+        broadcast({
+            type: 'METRICS_UPDATE',
+            data: {
+                current: currentThroughput,
+                average: avgCandlesPerSecond
+            }
+        });
     }
 }, 1000);
 
@@ -281,6 +363,31 @@ setInterval(() => {
     if (performanceHistory.length > 1000) performanceHistory.shift(); // Keep last 1000
 
     broadcast({ type: 'HISTORY_UPDATE', data: performanceHistory });
+
+    // --- METRICS HISTORY SNAPSHOT (for comparison charts) ---
+    const metricsSnapshot = {
+        time: Date.now(),
+        goldrush: {
+            loadTime: connectionMetrics.goldrush.loadTime,
+            candlesPerSec: avgCandlesPerSecond.goldrush,
+            stability: getStabilityScore('goldrush'),
+            latency300: getAvgLatency300('goldrush')
+        },
+        codex: {
+            loadTime: connectionMetrics.codex.loadTime,
+            candlesPerSec: avgCandlesPerSecond.codex,
+            stability: getStabilityScore('codex'),
+            latency300: getAvgLatency300('codex')
+        },
+        gecko: {
+            loadTime: connectionMetrics.gecko.loadTime,
+            candlesPerSec: avgCandlesPerSecond.gecko,
+            stability: getStabilityScore('gecko'),
+            latency300: getAvgLatency300('gecko')
+        }
+    };
+    metricsHistory.push(metricsSnapshot);
+    if (metricsHistory.length > 60) metricsHistory.shift(); // Keep last 5 min
 }, 5000);
 
 // Helper to increment throughput
@@ -339,6 +446,33 @@ app.get('/stats', (req, res) => {
             goldrush: getAvgLatency300('goldrush'),
             codex: getAvgLatency300('codex'),
             gecko: getAvgLatency300('gecko')
+        }
+    });
+});
+
+// --- METRICS HISTORY ENDPOINT (for comparison charts) ---
+app.get('/metrics-history', (req, res) => {
+    res.json({
+        history: metricsHistory,
+        current: {
+            goldrush: {
+                loadTime: connectionMetrics.goldrush.loadTime,
+                candlesPerSec: avgCandlesPerSecond.goldrush,
+                stability: getStabilityScore('goldrush'),
+                latency300: getAvgLatency300('goldrush')
+            },
+            codex: {
+                loadTime: connectionMetrics.codex.loadTime,
+                candlesPerSec: avgCandlesPerSecond.codex,
+                stability: getStabilityScore('codex'),
+                latency300: getAvgLatency300('codex')
+            },
+            gecko: {
+                loadTime: connectionMetrics.gecko.loadTime,
+                candlesPerSec: avgCandlesPerSecond.gecko,
+                stability: getStabilityScore('gecko'),
+                latency300: getAvgLatency300('gecko')
+            }
         }
     });
 });
@@ -635,14 +769,18 @@ async function processGoldrushCandles(candles) {
 
     const candleTimeMs = new Date(latestCandle.timestamp).getTime();
     // For ONE_SECOND interval, candle close time is candleStart + 1 second
-    const candleCloseTime = candleTimeMs + 1000;
-    let goldRushLatency = fastArrival - candleCloseTime;
+    let goldRushLatency = Date.now() - candleTimeMs;
+
+    // DEBUG:
+    // if (Math.random() < 0.1) console.log(`[LATENCY DEBUG] GR: Now=${Date.now()} Candle=${candleTimeMs} Lat=${goldRushLatency}`);
     if (goldRushLatency < 0) goldRushLatency = 0;
 
     // Track Latency
     latencyStats.goldrush.sum += goldRushLatency;
     latencyStats.goldrush.count++;
     addLatencySample('goldrush', goldRushLatency);
+    addLatencyDelta('goldrush', goldRushLatency);
+    latestLatency.goldrush = goldRushLatency;
 
     logger.goldrush.stream(price, goldRushLatency, candles.length);
     countUpdate('goldrush'); // Track Hz
@@ -660,6 +798,8 @@ async function processGoldrushCandles(candles) {
         close: c.close
     }));
 
+
+
     const candleMap = new Map();
     goldrushCandles.forEach(c => candleMap.set(c.time, c));
     newCandles.forEach(c => candleMap.set(c.time, c));
@@ -675,7 +815,8 @@ async function processGoldrushCandles(candles) {
             price: price,
             timestamp: fastArrival,
             latency: goldRushLatency,
-            candles: goldrushCandles
+            candles: goldrushCandles,
+            throughput: avgCandlesPerSecond.goldrush
         }
     });
 
@@ -702,6 +843,8 @@ function startCodexSubscription() {
     if (codexCleanup) codexCleanup();
 
     console.log("🐢 Connecting to Codex SDK Stream...");
+    connectionMetrics.codex.loadStart = Date.now();
+    connectionMetrics.codex.connects++;
     const codex = new Codex(process.env.CODEX_API_KEY);
 
     const combinedTokenId = `${TOKEN_ADDRESS}:${CODEX_NETWORK_ID}`;
@@ -734,12 +877,20 @@ function startCodexSubscription() {
             {},
             {
                 next: (data) => {
+                    // Track first data load time
+                    if (connectionMetrics.codex.loadStart > 0 && connectionMetrics.codex.loadTime === 0) {
+                        connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
+                    }
                     const r1 = data?.data?.onTokenBarsUpdated?.aggregates?.r1?.usd;
                     if (r1) {
                         processCodexUpdate(r1);
                     }
                 },
-                error: (err) => console.error('❌ Codex SDK Subscription Error:', err),
+                error: (err) => {
+                    console.error('❌ Codex SDK Subscription Error:', err);
+                    connectionMetrics.codex.errors++;
+                    connectionMetrics.codex.lastError = Date.now();
+                },
                 complete: () => console.log('🐢 Codex SDK Subscription Complete'),
             }
         );
@@ -784,12 +935,18 @@ function processCodexUpdate(barData) {
 
     // Calculate Latency (Time since candle start vs arrival)
     // Note: Codex timestamp is candle START time. So real latency = (Now - CandleStart)
+    // Calculate Latency (Time since candle start vs arrival)
+    // Note: Codex timestamp is candle START time. So real latency = (Now - CandleStart)
     const latency = Date.now() - timeMs;
+    // DEBUG:
+    // if (Math.random() < 0.1) console.log(`[LATENCY DEBUG] CX: Now=${Date.now()} Candle=${timeMs} Lat=${latency}`);
 
     // Track Latency
     latencyStats.codex.sum += latency;
     latencyStats.codex.count++;
     addLatencySample('codex', latency);
+    addLatencyDelta('codex', latency);
+    latestLatency.codex = latency;
 
     logger.codex.stream(codexPrice, latency, codexCandles.length);
     countUpdate('codex'); // Track Hz
@@ -801,7 +958,8 @@ function processCodexUpdate(barData) {
             price: codexPrice,
             timestamp: Date.now(),
             latency: latency, // Numeric Latency (calculated above)
-            candles: codexCandles
+            candles: codexCandles,
+            throughput: avgCandlesPerSecond.codex
         }
     });
 
@@ -869,7 +1027,8 @@ async function fetchCodexPrice() {
                     price: codexPrice,
                     timestamp: endTime,
                     latency: networkLatency,
-                    candles: codexCandles
+                    candles: codexCandles,
+                    throughput: avgCandlesPerSecond.codex
                 }
             });
 
@@ -923,12 +1082,14 @@ function startGeckoStream() {
         if (!poolAddress) return;
 
         console.log(`🦎 Connecting to CoinGecko Stream...`);
+        connectionMetrics.gecko.loadStart = Date.now();
         const ws = new WebSocket(`wss://stream.coingecko.com/v1?x_cg_pro_api_key=${process.env.COINGECKO_API_KEY}`);
 
         geckoCleanup = ws; // Save ref to close later
 
         ws.on('open', () => {
             console.log("✅ Connected to CoinGecko Stream!");
+            connectionMetrics.gecko.connects++;
             // Subscribe to OnchainOHLCV
             const subMsg = {
                 command: "subscribe",
@@ -966,11 +1127,19 @@ function startGeckoStream() {
             // CoinGecko may send data directly or wrapped in msg.message
             const ohlcvData = msg.message || msg;
             if (ohlcvData && ohlcvData.c && ohlcvData.t) {
+                // Track first data load time
+                if (connectionMetrics.gecko.loadStart > 0 && connectionMetrics.gecko.loadTime === 0) {
+                    connectionMetrics.gecko.loadTime = Date.now() - connectionMetrics.gecko.loadStart;
+                }
                 processGeckoUpdate(ohlcvData);
             }
         });
 
-        ws.on('error', (err) => console.error("❌ Gecko Stream Error:", err.message));
+        ws.on('error', (err) => {
+            console.error("❌ Gecko Stream Error:", err.message);
+            connectionMetrics.gecko.errors++;
+            connectionMetrics.gecko.lastError = Date.now();
+        });
         ws.on('close', () => console.log("📴 Gecko Stream Disconnected"));
     });
 }
@@ -1004,11 +1173,15 @@ function processGeckoUpdate(data) {
 
     // Calculate Latency (Time since candle start)
     const latency = Date.now() - timeMs;
+    // DEBUG:
+    // if (Math.random() < 0.1) console.log(`[LATENCY DEBUG] GK: Now=${Date.now()} Candle=${timeMs} Lat=${latency}`);
 
     // Track Latency
     latencyStats.gecko.sum += latency;
     latencyStats.gecko.count++;
     addLatencySample('gecko', latency);
+    addLatencyDelta('gecko', latency);
+    latestLatency.gecko = latency;
 
     logger.gecko.stream(price, latency, geckoCandles.length);
     countUpdate('gecko'); // Track Hz
@@ -1020,7 +1193,8 @@ function processGeckoUpdate(data) {
             price: price,
             timestamp: Date.now(),
             latency: latency,
-            candles: geckoCandles
+            candles: geckoCandles,
+            throughput: avgCandlesPerSecond.gecko
         }
     });
 
@@ -1047,10 +1221,20 @@ function createGoldrushClient() {
         process.env.COVALENT_API_KEY,
         {},
         {
-            onConnecting: () => console.log("🔗 Connecting to GoldRush Stream..."),
-            onOpened: () => console.log("✅ Connected to GoldRush Stream!"),
+            onConnecting: () => {
+                console.log("🔗 Connecting to GoldRush Stream...");
+                connectionMetrics.goldrush.loadStart = Date.now();
+            },
+            onOpened: () => {
+                console.log("✅ Connected to GoldRush Stream!");
+                connectionMetrics.goldrush.connects++;
+            },
             onClosed: () => console.log("📴 GoldRush Stream disconnected"),
-            onError: (error) => console.error("❌ GoldRush Stream error:", error),
+            onError: (error) => {
+                console.error("❌ GoldRush Stream error:", error);
+                connectionMetrics.goldrush.errors++;
+                connectionMetrics.goldrush.lastError = Date.now();
+            },
         }
     );
 
@@ -1074,6 +1258,10 @@ function startStream() {
         },
         {
             next: (data) => {
+                // Track first data load time
+                if (connectionMetrics.goldrush.loadStart > 0 && connectionMetrics.goldrush.loadTime === 0) {
+                    connectionMetrics.goldrush.loadTime = Date.now() - connectionMetrics.goldrush.loadStart;
+                }
                 const candles = Array.isArray(data) ? data : [data];
                 if (candles && candles.length > 0) {
                     const latestCandle = candles[candles.length - 1];
