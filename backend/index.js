@@ -258,13 +258,16 @@ function addLatencyDelta(provider, currentLatency) {
 // Combines: consistency (low delta variance) + speed (low avg latency)
 function getStabilityScore(provider) {
     const data = latencyDelta[provider];
-    if (!data || data.deltas.length === 0) return 100; // No data = assume stable
 
     // 1. Delta Score (consistency) - max 100 points
-    const avgDelta = data.sum / data.deltas.length;
-    const deltaScore = Math.max(0, 100 - (avgDelta / MAX_ACCEPTABLE_DELTA * 100));
+    let deltaScore = 100; // Default to perfect if no data
+    if (data && data.deltas.length > 0) {
+        const avgDelta = data.sum / data.deltas.length;
+        deltaScore = Math.max(0, 100 - (avgDelta / MAX_ACCEPTABLE_DELTA * 100));
+    }
 
     // 2. Latency Penalty (speed) - max 30 point penalty
+    // ALWAYS apply this, even if no delta samples
     const MAX_LATENCY_FOR_PENALTY = 60000; // 60 seconds
     const PENALTY_WEIGHT = 30; // Max points to deduct
     const avgLatency = getAvgLatency300(provider);
