@@ -606,11 +606,14 @@ let geckoCleanup = null;
 
 
 async function initCodexProvider() {
-    // 1. Fetch History (Backfill) via HTTP - not counted in Time to First Data
+    // 1. Start Timer (for fair TTFD comparison including history fetch)
+    connectionMetrics.codex.loadStart = Date.now();
+
+    // 2. Fetch History (Backfill) via HTTP
     console.log("🐢 Fetching Codex History...");
     await fetchCodexPrice();
 
-    // 2. Start Live Subscription via SDK (Low-Level)
+    // 3. Start Live Subscription via SDK (Low-Level)
     startCodexSubscription();
 }
 
@@ -621,7 +624,7 @@ function startCodexSubscription() {
     }
 
     console.log("🐢 Connecting to Codex GraphQL Stream (Events)...");
-    connectionMetrics.codex.loadStart = Date.now();
+    // connectionMetrics.codex.loadStart = Date.now(); // NOW SET IN initCodexProvider
     connectionMetrics.codex.connects++;
 
     // Raw graphql-ws connection (NO SDK)
@@ -790,7 +793,7 @@ async function fetchCodexPrice() {
                     'Content-Type': 'application/json',
                     'Authorization': process.env.CODEX_API_KEY
                 },
-                timeout: 5000
+                timeout: 15000
             }
         );
 
@@ -800,6 +803,12 @@ async function fetchCodexPrice() {
 
         if (data && data.c && data.c.length > 0) {
             const codexPrice = data.c[data.c.length - 1];
+
+            // Capture Time to First Data (from History Fetch)
+            if (connectionMetrics.codex.loadTime === 0) {
+                connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
+                console.log(`✅ Codex Time to First Data (History): ${connectionMetrics.codex.loadTime}ms`);
+            }
 
             pairs[SYMBOL].slowPrice = codexPrice;
 
@@ -1225,12 +1234,14 @@ function processGoldrushOHLCV(candles) {
 
     // Broadcast candle update (latency stats come from updatePairs stream)
     broadcast({
-        type: 'CANDLE_UPDATE',
-        provider: 'GOLDRUSH',
+        type: 'FAST_TICK',
         data: {
-            timestamp: Date.now(),
+            pair: SYMBOL,
             price: price,
-            candles: goldrushCandles
+            timestamp: Date.now(),
+            latency: latestLatency.goldrush,
+            candles: goldrushCandles,
+            throughput: avgCandlesPerSecond.goldrush
         }
     });
 }
