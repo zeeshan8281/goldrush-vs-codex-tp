@@ -684,11 +684,7 @@ function startCodexSubscription() {
             next: (result) => {
                 const events = result?.data?.onEventsCreated?.events;
                 if (events && events.length > 0) {
-                    // Track first data load time
-                    if (connectionMetrics.codex.loadTime === 0) {
-                        connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
-                        console.log(`✅ Codex Time to First Data: ${connectionMetrics.codex.loadTime}ms`);
-                    }
+                    // TTFD now calculated in onBarsUpdated subscription (standardized)
                     processCodexEvents(events);
                 }
             },
@@ -746,6 +742,11 @@ function startCodexSubscription() {
             next: (result) => {
                 const bar = result?.data?.onBarsUpdated;
                 if (bar && bar.aggregates?.r1?.usd) {
+                    // TTFD: First bar update = System Ready (per standardization)
+                    if (connectionMetrics.codex.loadTime === 0) {
+                        connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
+                        console.log(`✅ Codex Time to First Data (onBarsUpdated): ${connectionMetrics.codex.loadTime}ms`);
+                    }
                     // Count each bar update for throughput chart
                     countUpdate('codex');
                     // console.log(`📊 Codex Bar Update: ${JSON.stringify(bar.aggregates.r1.usd).substring(0, 100)}`);
@@ -864,11 +865,7 @@ async function fetchCodexPrice() {
         if (data && data.c && data.c.length > 0) {
             const codexPrice = data.c[data.c.length - 1];
 
-            // Capture Time to First Data (from History Fetch)
-            if (connectionMetrics.codex.loadTime === 0) {
-                connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
-                console.log(`✅ Codex Time to First Data (History): ${connectionMetrics.codex.loadTime}ms`);
-            }
+            // TTFD now calculated in onBarsUpdated subscription (standardized)
 
             pairs[SYMBOL].slowPrice = codexPrice;
 
@@ -1087,6 +1084,11 @@ function processGeckoOHLCV(ohlcv) {
         .slice(-15);
 
     // Broadcast candle update (latency stats come from OnchainTrade stream)
+    // TTFD: First OHLCV candle = System Ready (per standardization)
+    if (connectionMetrics.gecko.loadTime === 0) {
+        connectionMetrics.gecko.loadTime = Date.now() - connectionMetrics.gecko.loadStart;
+        console.log(`✅ Gecko Time to First Data (OnchainOHLCV): ${connectionMetrics.gecko.loadTime}ms`);
+    }
     // Throughput counting for bar chart (per implementation plan)
     countUpdate('gecko');
 
@@ -1105,11 +1107,7 @@ function processGeckoOHLCV(ohlcv) {
 function processGeckoTrade(trade) {
     if (!trade || !trade.t) return;
 
-    // Track TTFD here (First Trade Event = System Alive)
-    if (connectionMetrics.gecko.loadTime === 0) {
-        connectionMetrics.gecko.loadTime = Date.now() - connectionMetrics.gecko.loadStart;
-        console.log(`✅ Gecko Time to First Data (Trade): ${connectionMetrics.gecko.loadTime}ms`);
-    }
+    // Track TTFD here (First Trade Event = System Alive)\n    // TTFD now calculated in processGeckoOHLCV (standardized to bar chart stream)
 
     const now = Date.now();
     // trade.t is Unix timestamp in ms (per CoinGecko docs: 1752072129000)
