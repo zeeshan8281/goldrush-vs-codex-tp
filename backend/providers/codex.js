@@ -7,19 +7,11 @@
 const axios = require('axios');
 const { Codex } = require('@codex-data/sdk');
 const logger = require('../utils/logger');
-const raceCoordinator = require('../utils/raceCoordinator');
+const RollingStats = require('../utils/stats');
 
-// --- TRADING THRESHOLD ---
-const CODEX_THRESHOLD = 0.000001;
+const statsCalculator = new RollingStats();
 
-// --- STATE ---
-let candles = [];
-let trading = {
-    position: null,
-    lastPrice: null,
-    trades: [],
-    totalPnL: 0
-};
+// Removed Paper Trading Logic
 
 let cleanup = null;
 let broadcast = null;
@@ -163,6 +155,9 @@ async function fetchHistory(tokenAddress) {
 /**
  * Start the Codex WebSocket subscription
  */
+/**
+ * Start the Codex WebSocket subscription for Events
+ */
 function startSubscription(tokenAddress) {
     if (cleanup) cleanup();
 
@@ -170,26 +165,34 @@ function startSubscription(tokenAddress) {
     logger.codex.connect();
     const codex = new Codex(process.env.CODEX_API_KEY);
 
-    const combinedTokenId = `${tokenAddress}:${networkId}`;
-    const currentConfig = Object.values(RESOLUTION_MAP).find(r => r.resolution === currentResolution) || RESOLUTION_MAP['1m'];
-    const aggregateKey = currentConfig.aggregate;
+    // Filter for Swaps on the Token
+    // We listen to events where the token is involved
+    // Note: Ideally we listen to the Pool Address for specific swaps, 
+    // but onEventsCreated can filter by contract address. 
+    // Be careful: tokenAddress is the Token, not the Pool. 
+    // For now, let's assume we are tracking the POOL address if possible, 
+    // or we listen to Transfer events on the Token.
+    // User Instructions: "for each swap event we store... corresponding block height and block time"
+    // "onEventsCreated" is the right subscription.
+
+    // We need the pair address for Swaps. 
+    // Since we only have tokenAddress passed here, we might need to resolve the top pair first.
+    // However, let's stick to the current flow. If tokenAddress is a Token, we get Transfers.
+    // If it's a Pool, we get Swaps.
+    // Let's assume the user wants us to track the Pool for Swaps.
+    // But `backend/index.js` passes `TOKEN_ADDRESS`.
 
     const query = `
         subscription {
-            onTokenBarsUpdated(
-                tokenId: "${combinedTokenId}"
-            ) {
-                aggregates {
-                    ${aggregateKey} {
-                        usd {
-                            c
-                            o
-                            h
-                            l
-                            t
-                        }
-                    }
+            onEventsCreated(
+                networkId: ${networkId}
+                candidate: {
+                    address: "${tokenAddress}" 
                 }
+            ) {
+                blockTimestamp
+                transactionHash
+                eventType
             }
         }
     `;
@@ -200,10 +203,9 @@ function startSubscription(tokenAddress) {
             {},
             {
                 next: (data) => {
-                    const aggregates = data?.data?.onTokenBarsUpdated?.aggregates;
-                    const barData = aggregates?.[aggregateKey]?.usd;
-                    if (barData) {
-                        processUpdate(barData);
+                    const event = data?.data?.onEventsCreated;
+                    if (event) {
+                        processEvent(event);
                     }
                 },
                 error: (err) => logger.codex.error(`Subscription error: ${err}`),
@@ -217,114 +219,51 @@ function startSubscription(tokenAddress) {
 }
 
 /**
- * Process incoming bar data
+ * Process incoming Event
  */
-function processUpdate(barData) {
-    const price = barData.c;
-    const timestamp = barData.t;
-    const timeMs = timestamp * 1000;
-    const SYMBOL = getSymbol();
+function processEvent(event) {
+    // Latency = Client Receive Time - Block Time
+    // event.blockTimestamp is usually in seconds (Unix)
+    const blockTimeMs = new Date(event.blockTimestamp).getTime();
+    // If blockTimestamp is a string ISO, standard Date parse works.
+    // If it is unix seconds number, mul by 1000. 
+    // Codex typically returns ISO string "2024-..." or unix timestamp? 
+    // Let's assume ISO string based on standard GQL, but if number check type.
 
-    if (!price || price <= 0) return;
+    let eventTime = blockTimeMs;
+    if (!isNaN(event.blockTimestamp)) {
+        // likely seconds
+        eventTime = Number(event.blockTimestamp) * 1000;
+        eventTimeMs = Number(event.blockTimestamp) * 1000;
+    } else {
+        eventTimeMs = new Date(event.blockTimestamp).getTime();
+    }
 
-    updatePairs(SYMBOL, { slowPrice: price });
+    const now = Date.now();
+    const latency = now - eventTimeMs;
 
-    const newCandle = {
-        time: timestamp,
-        open: barData.o,
-        high: barData.h,
-        low: barData.l,
-        close: barData.c
-    };
-
-    const candleMap = new Map();
-    candles.forEach(c => candleMap.set(c.time, c));
-    candleMap.set(newCandle.time, newCandle);
-
-    candles = Array.from(candleMap.values())
-        .sort((a, b) => a.time - b.time)
-        .slice(-60);
-
-    const latency = Date.now() - timeMs;
-
-    logger.codex.stream(price, latency, candles.length);
+    // Stats
+    statsCalculator.add(latency);
+    const stats = statsCalculator.getStats();
 
     broadcast({
-        type: 'SLOW_TICK',
+        type: 'LATENCY_UPDATE',
+        provider: 'CODEX',
         data: {
-            pair: SYMBOL,
-            price: price,
-            timestamp: Date.now(),
+            timestamp: now,
             latency: latency,
-            candles: candles
+            blockTime: eventTimeMs,
+            stats: stats
         }
     });
 
-    // Store latency for race reporting
-    trading.lastLatency = latency;
-    checkTrade(price);
+    updatePairs(getSymbol(), { lastLatency: latency, stats: stats });
 }
 
 /**
  * Paper trading logic
  */
-function checkTrade(currentPrice) {
-    if (!currentPrice || currentPrice <= 0) return;
 
-    const prev = trading.lastPrice;
-    trading.lastPrice = currentPrice;
-
-    if (!prev) return;
-
-    const priceChange = (currentPrice - prev) / prev;
-    const SYMBOL = getSymbol();
-
-    if (trading.position) {
-        const pos = trading.position;
-        const holdTime = Date.now() - pos.entryTime;
-
-        const priceChangeFromEntry = (currentPrice - pos.entryPrice) / pos.entryPrice;
-        const takeProfitTarget = CODEX_THRESHOLD * 3;
-        const shouldExit = (pos.side === 'LONG' && priceChangeFromEntry > takeProfitTarget) ||
-            (pos.side === 'SHORT' && priceChangeFromEntry < -takeProfitTarget) ||
-            holdTime > 10000;
-
-        if (shouldExit) {
-            const pnl = pos.side === 'LONG'
-                ? (currentPrice - pos.entryPrice) * 100000000
-                : (pos.entryPrice - currentPrice) * 100000000;
-
-            const trade = {
-                id: `cx-${Date.now()}`,
-                timestamp: Date.now(),
-                pair: SYMBOL,
-                side: pos.side,
-                entryPrice: pos.entryPrice,
-                exitPrice: currentPrice,
-                pnl: Number(pnl.toFixed(2)),
-                latency: `${Date.now() - pos.entryTime}ms`
-            };
-
-            trading.trades.unshift(trade);
-            if (trading.trades.length > 50) trading.trades.pop();
-            trading.totalPnL += trade.pnl;
-            trading.position = null;
-
-            broadcast({ type: 'SLOW_TRADE', data: trade });
-            logger.codex.trade(pos.side, 'CLOSE', currentPrice, trade.pnl);
-        }
-    } else {
-        if (priceChange > CODEX_THRESHOLD) {
-            trading.position = { side: 'LONG', entryPrice: currentPrice, entryTime: Date.now(), latency: trading.lastLatency || 0 };
-            logger.codex.trade('LONG', 'OPEN', currentPrice);
-            raceCoordinator.reportSignal('codex', 'LONG', currentPrice, trading.lastLatency || 0);
-        } else if (priceChange < -CODEX_THRESHOLD) {
-            trading.position = { side: 'SHORT', entryPrice: currentPrice, entryTime: Date.now(), latency: trading.lastLatency || 0 };
-            logger.codex.trade('SHORT', 'OPEN', currentPrice);
-            raceCoordinator.reportSignal('codex', 'SHORT', currentPrice, trading.lastLatency || 0);
-        }
-    }
-}
 
 /**
  * Start the full Codex pipeline
@@ -349,12 +288,7 @@ function reset() {
         cleanup = null;
     }
     candles = [];
-    trading = {
-        position: null,
-        lastPrice: null,
-        trades: [],
-        totalPnL: 0
-    };
+    candles = [];
 }
 
 /**
@@ -363,7 +297,7 @@ function reset() {
 function getState() {
     return {
         candles,
-        trading,
+        candles,
         threshold: CODEX_THRESHOLD
     };
 }

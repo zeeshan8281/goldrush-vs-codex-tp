@@ -169,62 +169,9 @@ function processUpdate(data) {
 /**
  * Paper trading logic
  */
+// Removed Paper Trading Logic
 function checkTrade(currentPrice) {
-    if (!currentPrice || currentPrice <= 0) return;
-
-    const prev = trading.lastPrice;
-    trading.lastPrice = currentPrice;
-
-    if (!prev) return;
-
-    const priceChange = (currentPrice - prev) / prev;
-    const SYMBOL = getSymbol();
-
-    if (trading.position) {
-        const pos = trading.position;
-        const holdTime = Date.now() - pos.entryTime;
-
-        const priceChangeFromEntry = (currentPrice - pos.entryPrice) / pos.entryPrice;
-        const takeProfitTarget = GECKO_THRESHOLD * 3;
-        const shouldExit = (pos.side === 'LONG' && priceChangeFromEntry > takeProfitTarget) ||
-            (pos.side === 'SHORT' && priceChangeFromEntry < -takeProfitTarget) ||
-            holdTime > 10000;
-
-        if (shouldExit) {
-            const pnl = pos.side === 'LONG'
-                ? (currentPrice - pos.entryPrice) * 100000000
-                : (pos.entryPrice - currentPrice) * 100000000;
-
-            const trade = {
-                id: `gk-${Date.now()}`,
-                timestamp: Date.now(),
-                pair: SYMBOL,
-                side: pos.side,
-                entryPrice: pos.entryPrice,
-                exitPrice: currentPrice,
-                pnl: Number(pnl.toFixed(2)),
-                latency: `${Date.now() - pos.entryTime}ms`
-            };
-
-            trading.trades.unshift(trade);
-            if (trading.trades.length > 50) trading.trades.pop();
-            trading.totalPnL += trade.pnl;
-            trading.position = null;
-
-            broadcast({ type: 'GECKO_TRADE', data: trade });
-            logger.gecko.trade(pos.side, 'CLOSE', currentPrice, trade.pnl);
-        }
-    } else {
-        if (priceChange > GECKO_THRESHOLD) {
-            trading.position = { side: 'LONG', entryPrice: currentPrice, entryTime: Date.now(), latency: trading.lastLatency || 0 };
-            logger.gecko.trade('LONG', 'OPEN', currentPrice);
-            raceCoordinator.reportSignal('gecko', 'LONG', currentPrice, trading.lastLatency || 0);
-        } else if (priceChange < -GECKO_THRESHOLD) {
-            trading.position = { side: 'SHORT', entryPrice: currentPrice, entryTime: Date.now(), latency: trading.lastLatency || 0 };
-            logger.gecko.trade('SHORT', 'OPEN', currentPrice);
-            raceCoordinator.reportSignal('gecko', 'SHORT', currentPrice, trading.lastLatency || 0);
-        }
-    }
+    // No-op
 }
 
 /**
