@@ -256,7 +256,7 @@ const CandlesPerIntervalChart = ({ history, icon: Icon }) => {
         if (!history || !chartRef.current || history.length === 0) return;
 
         // Use candlesPerSec * 60 to get approximate candles per minute
-        const providers = ['goldrush', 'codex', 'gecko'];
+        const providers = ['codex', 'goldrush', 'gecko'];
         providers.forEach(provider => {
             const data = history.map(h => ({
                 time: Math.floor(h.time / 1000),
