@@ -703,6 +703,65 @@ function startCodexSubscription() {
 
     codexCleanup = () => codexWsClient.dispose();
     console.log("✅ Codex GraphQL Subscription Active (Events)!");
+
+    // --- SECOND SUBSCRIPTION: onBarsUpdated for Bar Chart Throughput ---
+    console.log("📊 Starting Codex onBarsUpdated Stream (Bar Chart)...");
+    const codexBarsClient = createClient({
+        url: 'wss://graph.codex.io/graphql',
+        webSocketImpl: WebSocket,
+        connectionParams: {
+            Authorization: process.env.CODEX_API_KEY
+        },
+        on: {
+            connected: () => console.log('✅ Connected to Codex onBarsUpdated Stream!'),
+            error: (err) => console.error('❌ Codex Bars WS Error:', err)
+        }
+    });
+
+    const pairId = `${PAIR_ADDRESS}:${CODEX_NETWORK_ID}`;
+    const barsQuery = `
+        subscription($pairId: String!) {
+            onBarsUpdated(pairId: $pairId) {
+                pairId
+                timestamp
+                aggregates {
+                    r1 {
+                        t
+                        usd {
+                            o
+                            h
+                            l
+                            c
+                            volume
+                        }
+                    }
+                }
+            }
+        }
+    `;
+
+    codexBarsClient.subscribe(
+        { query: barsQuery, variables: { pairId } },
+        {
+            next: (result) => {
+                const bar = result?.data?.onBarsUpdated;
+                if (bar && bar.aggregates?.r1?.usd) {
+                    // Count each bar update for throughput chart
+                    countUpdate('codex');
+                    // console.log(`📊 Codex Bar Update: ${JSON.stringify(bar.aggregates.r1.usd).substring(0, 100)}`);
+                }
+            },
+            error: (err) => console.error('❌ Codex Bars Subscription Error:', err),
+            complete: () => console.log('📊 Codex Bars Subscription Complete')
+        }
+    );
+
+    // Update cleanup to dispose BOTH clients
+    const originalCleanup = codexCleanup;
+    codexCleanup = () => {
+        try { originalCleanup(); } catch (e) { }
+        try { codexBarsClient.dispose(); } catch (e) { }
+    };
 }
 
 
@@ -738,7 +797,7 @@ function processCodexEvents(events) {
             codexLatestStats = stats;
 
             logger.codex.stream(price, latency, 0); // 0 candles
-            countUpdate('codex');
+            // Note: Throughput counting now done in onBarsUpdated subscription
 
             broadcast({
                 type: 'SLOW_TICK',
@@ -1028,6 +1087,9 @@ function processGeckoOHLCV(ohlcv) {
         .slice(-15);
 
     // Broadcast candle update (latency stats come from OnchainTrade stream)
+    // Throughput counting for bar chart (per implementation plan)
+    countUpdate('gecko');
+
     broadcast({
         type: 'CANDLE_UPDATE',
         provider: 'GECKO',
@@ -1059,7 +1121,7 @@ function processGeckoTrade(trade) {
     latestLatency.gecko = latency;
     addLatencySample('gecko', latency);
     addLatencyDelta('gecko', latency);
-    countUpdate('gecko');
+    // Note: Throughput counting now done in processGeckoOHLCV (bar chart uses OHLCV)
 
     // Detailed Logging (User Request)
     const price = parseFloat(trade.pu || 0).toFixed(2);
@@ -1208,6 +1270,12 @@ function processGoldrushUpdate(update) {
     if (!update || !update.timestamp) return;
 
     const now = Date.now();
+
+    // Race Condition TTFD: If updatePairs wins the race (Likely)
+    if (connectionMetrics.goldrush.loadTime === 0) {
+        connectionMetrics.goldrush.loadTime = now - connectionMetrics.goldrush.loadStart;
+        console.log(`✅ GoldRush Time to First Data (UpdatePairs): ${connectionMetrics.goldrush.loadTime}ms`);
+    }
 
     // timestamp is the block timestamp (ISO string)
     const blockTime = new Date(update.timestamp).getTime();
