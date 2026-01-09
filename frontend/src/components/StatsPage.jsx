@@ -5,10 +5,11 @@ import { TrendingUp, TrendingDown, Trophy, Clock, Activity, BarChart3, Zap, Time
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3002';
 
 // Provider colors
+// Provider colors (with transparency for overlapping bars)
 const COLORS = {
-    goldrush: '#ef4444',
-    codex: '#3b82f6',
-    gecko: '#eab308'
+    goldrush: '#ef4444cc',
+    codex: '#3b82f6cc',
+    gecko: '#eab308cc'
 };
 
 // Stat Card with 3 provider values stacked vertically
@@ -212,21 +213,28 @@ const CandlesPerIntervalChart = ({ history, icon: Icon }) => {
         });
 
         // Add histogram series for each provider
-        seriesRefs.current.goldrush = chart.addHistogramSeries({
-            color: COLORS.goldrush,
-            priceFormat: { type: 'volume' },
-            priceScaleId: 'right',
-        });
+        // Use shared 'right' scale so bars are comparable in height and crosshair label appears
+
         seriesRefs.current.codex = chart.addHistogramSeries({
             color: COLORS.codex,
             priceFormat: { type: 'volume' },
             priceScaleId: 'right',
         });
+
+        seriesRefs.current.goldrush = chart.addHistogramSeries({
+            color: COLORS.goldrush,
+            priceFormat: { type: 'volume' },
+            priceScaleId: 'right',
+        });
+
         seriesRefs.current.gecko = chart.addHistogramSeries({
             color: COLORS.gecko,
             priceFormat: { type: 'volume' },
             priceScaleId: 'right',
         });
+
+        // Ensure right scale is visible
+        chart.priceScale('right').applyOptions({ visible: true });
 
         chartRef.current = chart;
 
