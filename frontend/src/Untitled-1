@@ -1,0 +1,299 @@
+[Skip to main content](https://goldrush.dev/docs/goldrush-streaming-api/authentication#content-area)
+[GoldRush API Documentation home page](https://goldrush.dev/docs)
+- [Contact Sales](https://goldrush.dev/cdn-cgi/l/email-protection#483b29242d3b082f27242c3a3d3b20662c2d3e773b3d2a222d2b3c751b29242d3b6d7a780126393d213a316d7a78656d7a780f27242c1a3d3b206d7a78091801)
+- [Support](https://goldrush.dev/cdn-cgi/l/email-protection#f98a8c8989968b8db99a968f98959c978d9188d79a9694)
+- [GoldRush Platform](https://goldrush.dev/platform)
+- [GoldRush Platform](https://goldrush.dev/platform)
+[Contact Sales](https://goldrush.dev/cdn-cgi/l/email-protection#483b29242d3b082f27242c3a3d3b20662c2d3e773b3d2a222d2b3c751b29242d3b6d7a780126393d213a316d7a78656d7a780f27242c1a3d3b206d7a78091801)
+[Support](https://goldrush.dev/cdn-cgi/l/email-protection#f98a8c8989968b8db99a968f98959c978d9188d79a9694)
+[GoldRush Platform](https://goldrush.dev/platform)
+[GoldRush Platform](https://goldrush.dev/platform)
+[Overview](https://goldrush.dev/docs/overview)
+[Foundational API](https://goldrush.dev/docs/goldrush-foundational-api/overview)
+[Streaming API](https://goldrush.dev/docs/goldrush-streaming-api/overview)
+[Chains](https://goldrush.dev/docs/chains/overview)
+- [Community](https://discord.gg/8ZWgu2pWY4)
+- [Guides](https://goldrush.dev/guides/)
+[Community](https://discord.gg/8ZWgu2pWY4)
+[Guides](https://goldrush.dev/guides/)
+
+##### GoldRush Streaming API
+- [Overview](https://goldrush.dev/docs/goldrush-streaming-api/overview)
+- [Quickstart](https://goldrush.dev/docs/goldrush-streaming-api/quickstart)
+- [Authentication](https://goldrush.dev/docs/goldrush-streaming-api/authentication)
+- [SDK Guide](https://goldrush.dev/docs/goldrush-streaming-api/sdk)
+[Overview](https://goldrush.dev/docs/goldrush-streaming-api/overview)
+[Quickstart](https://goldrush.dev/docs/goldrush-streaming-api/quickstart)
+[Authentication](https://goldrush.dev/docs/goldrush-streaming-api/authentication)
+[SDK Guide](https://goldrush.dev/docs/goldrush-streaming-api/sdk)
+
+##### Available Streams
+- [OHLCV Tokens StreamBeta](https://goldrush.dev/docs/goldrush-streaming-api/ohlcv-tokens-stream)
+- [OHLCV Pairs StreamBeta](https://goldrush.dev/docs/goldrush-streaming-api/ohlcv-pairs-stream)
+- [New DEX Pairs StreamBeta](https://goldrush.dev/docs/goldrush-streaming-api/new-dex-pairs-stream)
+- [Update Pairs StreamBeta](https://goldrush.dev/docs/goldrush-streaming-api/update-pairs-stream)
+- [Wallet Activity StreamBeta](https://goldrush.dev/docs/goldrush-streaming-api/wallet-activity-stream)
+[OHLCV Tokens StreamBeta](https://goldrush.dev/docs/goldrush-streaming-api/ohlcv-tokens-stream)
+[OHLCV Pairs StreamBeta](https://goldrush.dev/docs/goldrush-streaming-api/ohlcv-pairs-stream)
+[New DEX Pairs StreamBeta](https://goldrush.dev/docs/goldrush-streaming-api/new-dex-pairs-stream)
+[Update Pairs StreamBeta](https://goldrush.dev/docs/goldrush-streaming-api/update-pairs-stream)
+[Wallet Activity StreamBeta](https://goldrush.dev/docs/goldrush-streaming-api/wallet-activity-stream)
+
+##### Available Queries
+- [Get top trading wallets for tokenBeta](https://goldrush.dev/docs/goldrush-streaming-api/upnl-for-token)
+- [Get PnL for walletBeta](https://goldrush.dev/docs/goldrush-streaming-api/upnl-for-wallet)
+[Get top trading wallets for tokenBeta](https://goldrush.dev/docs/goldrush-streaming-api/upnl-for-token)
+[Get PnL for walletBeta](https://goldrush.dev/docs/goldrush-streaming-api/upnl-for-wallet)
+
+##### Resources
+- [GraphQL Endpoints](https://goldrush.dev/docs/goldrush-streaming-api/graphql-endpoints)
+- [Decoded Events](https://goldrush.dev/docs/goldrush-streaming-api/decoded-events)
+- [GoldRush Playground](https://goldrush.dev/docs/goldrush-playground)
+[GraphQL Endpoints](https://goldrush.dev/docs/goldrush-streaming-api/graphql-endpoints)
+[Decoded Events](https://goldrush.dev/docs/goldrush-streaming-api/decoded-events)
+[GoldRush Playground](https://goldrush.dev/docs/goldrush-playground)
+- [Why is Authentication Required?](https://goldrush.dev/docs/goldrush-streaming-api/authentication#why-is-authentication-required)
+- [1. Obtaining a GoldRush API Key](https://goldrush.dev/docs/goldrush-streaming-api/authentication#1-obtaining-a-goldrush-api-key)
+- [2. Supplying the API Key from the Client](https://goldrush.dev/docs/goldrush-streaming-api/authentication#2-supplying-the-api-key-from-the-client)
+
+- [Use the GoldRush Client SDK (recommended)](https://goldrush.dev/docs/goldrush-streaming-api/authentication#use-the-goldrush-client-sdk-recommended)
+- [Use a GraphQL WebSocket Client](https://goldrush.dev/docs/goldrush-streaming-api/authentication#use-a-graphql-websocket-client)
+- [Use websocat for Manual WebSocket Testing](https://goldrush.dev/docs/goldrush-streaming-api/authentication#use-websocat-for-manual-websocket-testing)
+- [3. Server-Side Authentication Process](https://goldrush.dev/docs/goldrush-streaming-api/authentication#3-server-side-authentication-process)
+- [4. Error Handling](https://goldrush.dev/docs/goldrush-streaming-api/authentication#4-error-handling)
+- [5. Frequently Asked Questions (FAQ)](https://goldrush.dev/docs/goldrush-streaming-api/authentication#5-frequently-asked-questions-faq)
+[Why is Authentication Required?](https://goldrush.dev/docs/goldrush-streaming-api/authentication#why-is-authentication-required)
+[1. Obtaining a GoldRush API Key](https://goldrush.dev/docs/goldrush-streaming-api/authentication#1-obtaining-a-goldrush-api-key)
+[2. Supplying the API Key from the Client](https://goldrush.dev/docs/goldrush-streaming-api/authentication#2-supplying-the-api-key-from-the-client)
+[Use the GoldRush Client SDK (recommended)](https://goldrush.dev/docs/goldrush-streaming-api/authentication#use-the-goldrush-client-sdk-recommended)
+[Use a GraphQL WebSocket Client](https://goldrush.dev/docs/goldrush-streaming-api/authentication#use-a-graphql-websocket-client)
+[Use websocat for Manual WebSocket Testing](https://goldrush.dev/docs/goldrush-streaming-api/authentication#use-websocat-for-manual-websocket-testing)
+[3. Server-Side Authentication Process](https://goldrush.dev/docs/goldrush-streaming-api/authentication#3-server-side-authentication-process)
+[4. Error Handling](https://goldrush.dev/docs/goldrush-streaming-api/authentication#4-error-handling)
+[5. Frequently Asked Questions (FAQ)](https://goldrush.dev/docs/goldrush-streaming-api/authentication#5-frequently-asked-questions-faq)
+
+# Authentication
+
+End-to-end guide for authenticating GraphQL subscriptions with the GoldRush Streaming API.
+
+## [​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#why-is-authentication-required)Why is Authentication Required?
+[​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#why-is-authentication-required)
+
+## [​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#1-obtaining-a-goldrush-api-key)1. Obtaining a GoldRush API Key
+[​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#1-obtaining-a-goldrush-api-key)
+[GoldRush API Dashboard](https://goldrush.dev/platform/auth/register/)
+
+## [​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#2-supplying-the-api-key-from-the-client)2. Supplying the API Key from the Client
+[​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#2-supplying-the-api-key-from-the-client)
+
+### [​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#use-the-goldrush-client-sdk-recommended)Use the GoldRush Client SDK (recommended)
+[​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#use-the-goldrush-client-sdk-recommended)
+[GoldRush TypeScript Client SDK](https://www.npmjs.com/package/@covalenthq/client-sdk)
+
+```
+npm install @covalenthq/client-sdk
+```
+
+
+```
+npm install @covalenthq/client-sdk
+```
+
+
+```
+import { GoldRushClient, StreamingChain, StreamingInterval, StreamingTimeframe } from "@covalenthq/client-sdk"; const client = new GoldRushClient( "<YOUR_API_KEY>", // Your GoldRush API key {}, { onConnecting: () => console.log("Connecting to streaming service..."), onOpened: () => console.log("Connected to streaming service!"), onClosed: () => console.log("Disconnected from streaming service"), onError: (error) => console.error("Streaming error:", error), } ); // Subscribe to OHLCV tokens stream client.StreamingService.subscribeToOHLCVTokens( { chain_name: StreamingChain.BASE_MAINNET, token_addresses: ["0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b"], interval: StreamingInterval.ONE_MINUTE, timeframe: StreamingTimeframe.ONE_HOUR, }, { next: (data) => { console.log("Received OHLCV token data:", data); }, error: (error) => { console.error("Streaming error:", error); }, complete: () => { console.log("Stream completed"); }, } );
+```
+
+
+```
+import { GoldRushClient, StreamingChain, StreamingInterval, StreamingTimeframe } from "@covalenthq/client-sdk"; const client = new GoldRushClient( "<YOUR_API_KEY>", // Your GoldRush API key {}, { onConnecting: () => console.log("Connecting to streaming service..."), onOpened: () => console.log("Connected to streaming service!"), onClosed: () => console.log("Disconnected from streaming service"), onError: (error) => console.error("Streaming error:", error), } ); // Subscribe to OHLCV tokens stream client.StreamingService.subscribeToOHLCVTokens( { chain_name: StreamingChain.BASE_MAINNET, token_addresses: ["0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b"], interval: StreamingInterval.ONE_MINUTE, timeframe: StreamingTimeframe.ONE_HOUR, }, { next: (data) => { console.log("Received OHLCV token data:", data); }, error: (error) => { console.error("Streaming error:", error); }, complete: () => { console.log("Stream completed"); }, } );
+```
+
+- WebSocket connection management
+- API key authentication
+- Connection retry logic
+- Error handling
+- Type safety for parameters
+
+### [​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#use-a-graphql-websocket-client)Use a GraphQL WebSocket Client
+[​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#use-a-graphql-websocket-client)
+[graphql-ws](https://github.com/enisdenjo/graphql-ws)
+
+```
+import { createClient } from "graphql-ws"; const client = createClient({ url: "wss://gr-staging-v2.streaming.covalenthq.com/graphql", connectionParams: { GOLDRUSH_API_KEY: "YOUR_API_KEY_HERE", // Replace with your GoldRush API key }, }); (async () => { await client.subscribe( { query: `subscription { newPairs { ...fields } }`, }, { next: (data) => console.log("Received data:", data), error: (err) => console.error("Subscription error:", err), complete: () => console.log("Subscription complete"), } ); })();
+```
+
+
+```
+import { createClient } from "graphql-ws"; const client = createClient({ url: "wss://gr-staging-v2.streaming.covalenthq.com/graphql", connectionParams: { GOLDRUSH_API_KEY: "YOUR_API_KEY_HERE", // Replace with your GoldRush API key }, }); (async () => { await client.subscribe( { query: `subscription { newPairs { ...fields } }`, }, { next: (data) => console.log("Received data:", data), error: (err) => console.error("Subscription error:", err), complete: () => console.log("Subscription complete"), } ); })();
+```
+
+
+```
+GOLDRUSH_API_KEY
+```
+
+
+```
+connectionParams
+```
+
+### [​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#use-websocat-for-manual-websocket-testing)Use websocat for Manual WebSocket Testing
+
+[​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#use-websocat-for-manual-websocket-testing)
+
+```
+websocat
+```
+
+[websocat](https://github.com/vi/websocat)
+Step 1: Initiate the WebSocket Connection
+
+```
+websocat -H="Sec-WebSocket-Protocol: graphql-transport-ws" wss://gr-staging-v2.streaming.covalenthq.com/graphql
+```
+
+
+```
+websocat -H="Sec-WebSocket-Protocol: graphql-transport-ws" wss://gr-staging-v2.streaming.covalenthq.com/graphql
+```
+
+Step 2: Send the Connection Initialization Payload
+
+```
+<YOUR_API_KEY>
+```
+
+
+```
+{ "type": "connection_init", "payload": { "GOLDRUSH_API_KEY": "<YOUR_API_KEY>" } }
+```
+
+
+```
+{ "type": "connection_init", "payload": { "GOLDRUSH_API_KEY": "<YOUR_API_KEY>" } }
+```
+
+
+```
+connection_ack
+```
+
+Step 3: Submit a Subscription Query
+
+```
+{ "id": "74bb224c-22c6-4a0f-ad85-d43a8c4e49ce", "type": "subscribe", "payload": { "query": "subscription {newPairs(chain_name: BASE_MAINNET) { chain_name protocol protocol_version event_name tx_hash block_signed_at pair_address pair_metadata { contract_name contract_address contract_decimals contract_ticker_symbol } base_token_metadata { contract_name contract_address contract_decimals contract_ticker_symbol } quote_token_metadata { contract_name contract_address contract_decimals contract_ticker_symbol } deployer_address quote_rate quote_rate_usd liquidity market_cap supply prices { last_5m last_1hr last_6hr last_24hr } swaps { last_5m last_1hr last_6hr last_24hr }}}" } }
+```
+
+
+```
+{ "id": "74bb224c-22c6-4a0f-ad85-d43a8c4e49ce", "type": "subscribe", "payload": { "query": "subscription {newPairs(chain_name: BASE_MAINNET) { chain_name protocol protocol_version event_name tx_hash block_signed_at pair_address pair_metadata { contract_name contract_address contract_decimals contract_ticker_symbol } base_token_metadata { contract_name contract_address contract_decimals contract_ticker_symbol } quote_token_metadata { contract_name contract_address contract_decimals contract_ticker_symbol } deployer_address quote_rate quote_rate_usd liquidity market_cap supply prices { last_5m last_1hr last_6hr last_24hr } swaps { last_5m last_1hr last_6hr last_24hr }}}" } }
+```
+
+## [​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#3-server-side-authentication-process)3. Server-Side Authentication Process
+[​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#3-server-side-authentication-process)
+- The server does not validate the API key at the time of WebSocket connection establishment.
+- Instead, authentication is enforced at the start of each GraphQL subscription resolver.
+- If the API key is missing or invalid, the subscription will immediately terminate with an error message.
+
+## [​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#4-error-handling)4. Error Handling
+[​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#4-error-handling)
+- MISSING_TOKEN: No API key was provided in the connection_init payload.
+- INVALID_TOKEN: The provided API key is malformed or invalid.
+- AUTH_SYSTEM_ERROR: An internal server error occurred during authentication.
+
+```
+MISSING_TOKEN
+```
+
+
+```
+connection_init
+```
+
+
+```
+INVALID_TOKEN
+```
+
+
+```
+AUTH_SYSTEM_ERROR
+```
+
+
+```
+{ "errors": [ { "message": "Authentication required. Please provide a valid API key in the connection_init payload under 'GOLDRUSH_API_KEY' or 'Authorization' key.", "extensions": { "code": "MISSING_TOKEN" } } ] }
+```
+
+
+```
+{ "errors": [ { "message": "Authentication required. Please provide a valid API key in the connection_init payload under 'GOLDRUSH_API_KEY' or 'Authorization' key.", "extensions": { "code": "MISSING_TOKEN" } } ] }
+```
+
+## [​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#5-frequently-asked-questions-faq)5. Frequently Asked Questions (FAQ)
+[​](https://goldrush.dev/docs/goldrush-streaming-api/authentication#5-frequently-asked-questions-faq)
+- What is the client experience if the key is invalid?
+
+The client will always receive a connection_ack response, even if the API key is invalid. Authentication errors are only reported when a subscription is initiated.
+
+
+- The client will always receive a connection_ack response, even if the API key is invalid. Authentication errors are only reported when a subscription is initiated.
+- Where is the API key expected?
+
+The API key is expected in the payload of the connection_init message with the key GOLDRUSH_API_KEY.
+
+
+- The API key is expected in the payload of the connection_init message with the key GOLDRUSH_API_KEY.
+- What API key formats are supported?
+
+cqt_wF[26 base58 chars] or cqt_rQ[26 base58 chars]
+
+
+- cqt_wF[26 base58 chars] or cqt_rQ[26 base58 chars]
+- Why should I use the Client SDK?
+
+The Client SDK provides automatic authentication, connection management, retry logic, type safety, and a simplified API for all streaming operations.
+
+
+- The Client SDK provides automatic authentication, connection management, retry logic, type safety, and a simplified API for all streaming operations.
+- The client will always receive a connection_ack response, even if the API key is invalid. Authentication errors are only reported when a subscription is initiated.
+
+```
+connection_ack
+```
+
+- The API key is expected in the payload of the connection_init message with the key GOLDRUSH_API_KEY.
+
+```
+payload
+```
+
+
+```
+connection_init
+```
+
+
+```
+GOLDRUSH_API_KEY
+```
+
+- cqt_wF[26 base58 chars] or cqt_rQ[26 base58 chars]
+
+```
+cqt_wF[26 base58 chars]
+```
+
+
+```
+cqt_rQ[26 base58 chars]
+```
+
+- The Client SDK provides automatic authentication, connection management, retry logic, type safety, and a simplified API for all streaming operations.
+[Quickstart](https://goldrush.dev/docs/goldrush-streaming-api/quickstart)
+[SDK Guide](https://goldrush.dev/docs/goldrush-streaming-api/sdk)
+[x](https://x.com/goldrushdev)
+[github](https://github.com/covalenthq)
+[linkedin](https://www.linkedin.com/company/covalenthq)
+[Powered by](https://www.mintlify.com?utm_campaign=poweredBy&utm_medium=referral&utm_source=goldrush)

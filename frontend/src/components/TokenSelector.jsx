@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 
 const TokenSelector = ({ onChainChange }) => {
-    const [address, setAddress] = useState('DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'); // Default BONK
-    const [chain, setChain] = useState('SOLANA');
+    const [address, setAddress] = useState('0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b'); // Default VIRTUALS (Base)
+    const [chain, setChain] = useState('BASE');
     const [loading, setLoading] = useState(false);
 
     // Use environment variable for backend URL, fallback to localhost

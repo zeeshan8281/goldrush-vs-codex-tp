@@ -3,8 +3,7 @@ const http = require('http');
 const WebSocket = require('ws');
 const cors = require('cors');
 const axios = require('axios');
-const { GoldRushClient, StreamingChain, StreamingInterval, StreamingTimeframe } = require('@covalenthq/client-sdk');
-const { Codex } = require('@codex-data/sdk');
+// Using raw graphql-ws instead of SDKs
 const { createClient } = require('graphql-ws');
 require('dotenv').config();
 const logger = require('./utils/logger');
@@ -616,24 +615,44 @@ async function initCodexProvider() {
 }
 
 function startCodexSubscription() {
-    if (codexCleanup) codexCleanup();
+    if (codexCleanup) {
+        try { codexCleanup(); } catch (e) { }
+        codexCleanup = null;
+    }
 
-    console.log("🐢 Connecting to Codex SDK Stream (Events)...");
-    connectionMetrics.codex.loadStart = Date.now(); // Time from WS connection start to first data
+    console.log("🐢 Connecting to Codex GraphQL Stream (Events)...");
+    connectionMetrics.codex.loadStart = Date.now();
     connectionMetrics.codex.connects++;
-    const codex = new Codex(process.env.CODEX_API_KEY);
 
-    // Using Pair Address for onEventsCreated to catch Swaps
+    // Raw graphql-ws connection (NO SDK)
+    const codexWsClient = createClient({
+        url: 'wss://graph.codex.io/graphql',
+        webSocketImpl: WebSocket,
+        connectionParams: {
+            Authorization: process.env.CODEX_API_KEY
+        },
+        on: {
+            connected: () => {
+                console.log('✅ Connected to Codex GraphQL Stream!');
+            },
+            error: (err) => {
+                console.error('❌ Codex WS Error:', err);
+                connectionMetrics.codex.errors++;
+                connectionMetrics.codex.lastError = Date.now();
+            }
+        }
+    });
+
     const address = PAIR_ADDRESS;
     const networkId = parseInt(CODEX_NETWORK_ID);
 
     console.log(`🐢 Subscribing to Codex Events for: ${address} on Network: ${networkId}`);
 
     const query = `
-        subscription {
+        subscription($address: String!, $networkId: Int!) {
             onEventsCreated(
-                address: "${address}"
-                networkId: ${networkId}
+                address: $address
+                networkId: $networkId
             ) {
                 events {
                     transactionHash
@@ -652,38 +671,34 @@ function startCodexSubscription() {
         }
     `;
 
-    try {
-        codexCleanup = codex.subscribe(
+    codexWsClient.subscribe(
+        {
             query,
-            {},
-            {
-                next: (data) => {
-                    // Track first data load time (time from connection start to first packet)
+            variables: { address, networkId }
+        },
+        {
+            next: (result) => {
+                const events = result?.data?.onEventsCreated?.events;
+                if (events && events.length > 0) {
+                    // Track first data load time
                     if (connectionMetrics.codex.loadTime === 0) {
-                        const events = data?.data?.onEventsCreated?.events;
-                        if (events && events.length > 0) {
-                            connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
-                            console.log(`✅ Codex Time to First Data: ${connectionMetrics.codex.loadTime}ms`);
-                        }
+                        connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
+                        console.log(`✅ Codex Time to First Data: ${connectionMetrics.codex.loadTime}ms`);
                     }
-                    const events = data?.data?.onEventsCreated?.events;
-                    if (events && events.length > 0) {
-                        processCodexEvents(events);
-                    }
-                },
-                error: (err) => {
-                    console.error('❌ Codex SDK Subscription Error:', err);
-                    connectionMetrics.codex.errors++;
-                    connectionMetrics.codex.lastError = Date.now();
-                },
-                complete: () => console.log('🐢 Codex SDK Subscription Complete'),
-            }
-        );
-        console.log("✅ Codex SDK Subscription Active (Events)!");
+                    processCodexEvents(events);
+                }
+            },
+            error: (err) => {
+                console.error('❌ Codex Subscription Error:', err);
+                connectionMetrics.codex.errors++;
+                connectionMetrics.codex.lastError = Date.now();
+            },
+            complete: () => console.log('🐢 Codex Subscription Complete')
+        }
+    );
 
-    } catch (err) {
-        console.error("❌ Failed to start Codex SDK Subscription:", err);
-    }
+    codexCleanup = () => codexWsClient.dispose();
+    console.log("✅ Codex GraphQL Subscription Active (Events)!");
 }
 
 
@@ -906,7 +921,7 @@ function startGeckoStream() {
                 console.log(`🦎 Streaming started for ${poolAddress}`);
             }
 
-            // Handle OHLCV Data
+            // Handle OHLCV Data (for charts only, NOT latency)
             // CoinGecko may send data directly or wrapped in msg.message
             const ohlcvData = msg.message || msg;
             if (ohlcvData && ohlcvData.c && ohlcvData.t) {
@@ -915,7 +930,7 @@ function startGeckoStream() {
                     connectionMetrics.gecko.loadTime = Date.now() - connectionMetrics.gecko.loadStart;
                     console.log(`✅ Gecko Time to First Data: ${connectionMetrics.gecko.loadTime}ms`);
                 }
-                processGeckoUpdate(ohlcvData);
+                processGeckoOHLCV(ohlcvData);
             }
         });
 
@@ -925,23 +940,59 @@ function startGeckoStream() {
             connectionMetrics.gecko.lastError = Date.now();
         });
         ws.on('close', () => console.log("📴 Gecko Stream Disconnected"));
+
+        // --- SECOND CONNECTION: OnchainTrade for LATENCY METRICS ---
+        console.log('📊 Starting CoinGecko OnchainTrade Stream...');
+        const tradeWs = new WebSocket(`wss://stream.coingecko.com/v1?x_cg_pro_api_key=${process.env.COINGECKO_API_KEY}`);
+
+        tradeWs.on('open', () => {
+            console.log("✅ Connected to CoinGecko OnchainTrade Stream!");
+            // Subscribe to OnchainTrade channel
+            const subMsg = {
+                command: "subscribe",
+                identifier: JSON.stringify({ channel: "OnchainTrade" })
+            };
+            tradeWs.send(JSON.stringify(subMsg));
+        });
+
+        tradeWs.on('message', (data) => {
+            const msg = JSON.parse(data.toString());
+
+            // Handle Subscription Confirmation
+            if (msg.type === 'confirm_subscription') {
+                console.log("🦎 OnchainTrade Subscription Confirmed. Configuring Pool...");
+                const geckoNetwork = CURRENT_CHAIN === 'BASE_MAINNET' ? 'base' : 'solana';
+                const configMsg = {
+                    command: "message",
+                    identifier: JSON.stringify({ channel: "OnchainTrade" }),
+                    data: JSON.stringify({
+                        "network_id:pool_addresses": [`${geckoNetwork}:${poolAddress}`],
+                        "action": "set_pools"
+                    })
+                };
+                tradeWs.send(JSON.stringify(configMsg));
+            }
+
+            // Handle Trade Data (for latency metrics)
+            const tradeData = msg.message || msg;
+            // OnchainTrade has: t (timestamp), ty (type), vo (volume), pu (price_usd), tx (tx_hash)
+            if (tradeData && tradeData.t && tradeData.ty) {
+                processGeckoTrade(tradeData);
+            }
+        });
+
+        tradeWs.on('error', (err) => {
+            console.error("❌ Gecko Trade Stream Error:", err.message);
+        });
+        tradeWs.on('close', () => console.log("📴 Gecko Trade Stream Disconnected"));
     });
 }
 
-function processGeckoUpdate(ohlcv) {
+// --- COINGECKO: Process OHLCV Data (charts only, latency comes from OnchainTrade) ---
+function processGeckoOHLCV(ohlcv) {
     if (!ohlcv || !ohlcv.t || !ohlcv.c) return;
 
     const price = parseFloat(ohlcv.c);
-    const now = Date.now();
-    const latency = now - (ohlcv.t * 1000);
-
-    // Track Stats
-    gkStats.add(latency);
-
-    // Update global for /stats
-    latestLatency.gecko = latency;
-    addLatencySample('gecko', latency);
-    addLatencyDelta('gecko', latency);
 
     // Candle Logic
     const timeMs = ohlcv.t * 1000;
@@ -965,68 +1016,37 @@ function processGeckoUpdate(ohlcv) {
         .sort((a, b) => a.time - b.time)
         .slice(-15);
 
-    // Logging
-    // Only log if it's a new minute candle to avoid spam, or if it's the very first one
-    if (geckoCandles.length === 0 || ohlcv.t > geckoCandles[geckoCandles.length - 1].time) {
-        logger.gecko.stream(price, latency, geckoCandles.length + 1);
-    }
-
-    countUpdate('gecko'); // Track Hz
-
+    // Broadcast candle update (latency stats come from OnchainTrade stream)
     broadcast({
-        type: 'GECKO_TICK',
+        type: 'CANDLE_UPDATE',
+        provider: 'GECKO',
         data: {
-            pair: SYMBOL,
-            price: price,
             timestamp: Date.now(),
-            latency: latency,
-            candles: geckoCandles,
-            throughput: avgCandlesPerSecond.gecko
+            price: price,
+            candles: geckoCandles
         }
     });
-
-    // checkGeckoTrade(price); // Removed as per instruction
 }
 
-// --- GOLDRUSH SDK CLIENT ---
-let goldrushClient = null;
+// --- COINGECKO: Process OnchainTrade for LATENCY METRICS ---
+function processGeckoTrade(trade) {
+    if (!trade || !trade.t) return;
+
+    const now = Date.now();
+    // trade.t is Unix timestamp in ms (per CoinGecko docs: 1752072129000)
+    const blockTime = trade.t;
+    const latency = now - blockTime; // client_receive_time - block_time
+
+    // Add to rolling stats for p50/p95/p99
+    gkStats.add(latency);
+    latestLatency.gecko = latency;
+    addLatencySample('gecko', latency);
+    addLatencyDelta('gecko', latency);
+    countUpdate('gecko');
+}
+
+// --- GOLDRUSH STREAM (raw graphql-ws) ---
 let goldrushCleanup = null;
-
-function createGoldrushClient() {
-    // Cleanup previous instance if exists
-    if (goldrushCleanup) {
-        try {
-            goldrushCleanup();
-        } catch (e) {
-            console.log("Note: GoldRush cleanup had no effect (SDK may not support unsubscribe)");
-        }
-        goldrushCleanup = null;
-    }
-
-    // Create fresh client instance
-    goldrushClient = new GoldRushClient(
-        process.env.COVALENT_API_KEY,
-        {},
-        {
-            onConnecting: () => {
-                console.log("🔗 Connecting to GoldRush Stream...");
-                connectionMetrics.goldrush.loadStart = Date.now();
-            },
-            onOpened: () => {
-                console.log("✅ Connected to GoldRush Stream!");
-                connectionMetrics.goldrush.connects++;
-            },
-            onClosed: () => console.log("📴 GoldRush Stream disconnected"),
-            onError: (error) => {
-                console.error("❌ GoldRush Stream error:", error);
-                connectionMetrics.goldrush.errors++;
-                connectionMetrics.goldrush.lastError = Date.now();
-            },
-        }
-    );
-
-    return goldrushClient;
-}
 
 function startStream() {
     console.log(`🚀 Starting GoldRush OHLCV Pairs Stream on: ${CURRENT_CHAIN}`);
@@ -1105,25 +1125,80 @@ function startStream() {
     });
 
     goldrushCleanup = () => grWsClient.dispose();
+
+    // --- SEPARATE CLIENT: updatePairs for LATENCY METRICS ---
+    console.log('📊 Starting GoldRush updatePairs Stream...');
+    const grUpdatePairsClient = createClient({
+        url: 'wss://gr-staging-v2.streaming.covalenthq.com/graphql',
+        webSocketImpl: WebSocket,
+        connectionParams: {
+            GOLDRUSH_API_KEY: process.env.COVALENT_API_KEY
+        },
+        on: {
+            connected: () => console.log('✅ Connected to GoldRush updatePairs Stream!'),
+            error: (err) => console.error('❌ GoldRush updatePairs WS Error:', err)
+        }
+    });
+
+    const updatePairsQuery = `subscription {
+        updatePairs(
+            chain_name: ${CURRENT_CHAIN}
+            pair_addresses: ["${PAIR_ADDRESS.toLowerCase()}"]
+        ) {
+            chain_name
+            pair_address
+            timestamp
+            quote_rate
+            quote_rate_usd
+            volume
+            volume_usd
+            market_cap
+            liquidity
+        }
+    }`;
+
+    grUpdatePairsClient.subscribe({ query: updatePairsQuery }, {
+        next: (result) => {
+            // Debug: log the full result structure
+            console.log(`📊 GoldRush updatePairs raw:`, JSON.stringify(result).substring(0, 300));
+
+            const update = result?.data?.updatePairs;
+            if (update && update.timestamp) {
+                processGoldrushUpdate(update);
+            }
+        },
+        error: (err) => {
+            console.error('❌ GoldRush updatePairs Error:', err);
+        },
+        complete: () => console.log('GoldRush updatePairs Stream Completed')
+    });
 }
 
-// --- GOLDRUSH: Process OHLCV Candles ---
-function processGoldrushOHLCV(candles) {
-    if (!candles || candles.length === 0) return;
+// --- GOLDRUSH: Process updatePairs for LATENCY METRICS ---
+function processGoldrushUpdate(update) {
+    if (!update || !update.timestamp) return;
 
     const now = Date.now();
-    const latestCandle = candles[candles.length - 1];
-    const eventTimeMs = new Date(latestCandle.timestamp).getTime();
-    const latency = now - eventTimeMs;
 
-    // Track Stats
+    // timestamp is the block timestamp (ISO string)
+    const blockTime = new Date(update.timestamp).getTime();
+    const latency = now - blockTime; // client_receive_time - block_time
+
+    // Add to rolling stats for p50/p95/p99
     grStats.add(latency);
     latestLatency.goldrush = latency;
     addLatencySample('goldrush', latency);
     addLatencyDelta('goldrush', latency);
     countUpdate('goldrush');
+}
 
+// --- GOLDRUSH: Process OHLCV Candles (charts only, latency comes from updatePairs) ---
+function processGoldrushOHLCV(candles) {
+    if (!candles || candles.length === 0) return;
+
+    const latestCandle = candles[candles.length - 1];
     const price = latestCandle.close || latestCandle.quote_rate;
+
     if (price) {
         pairs[SYMBOL].price = price;
         pairs[SYMBOL].fastPrice = price;
@@ -1148,66 +1223,16 @@ function processGoldrushOHLCV(candles) {
         .sort((a, b) => a.time - b.time)
         .slice(-60); // Keep last 60 candles (1 hour of 1-min candles)
 
-    logger.goldrush.stream(price, latency, goldrushCandles.length);
-
+    // Broadcast candle update (latency stats come from updatePairs stream)
     broadcast({
-        type: 'LATENCY_UPDATE',
+        type: 'CANDLE_UPDATE',
         provider: 'GOLDRUSH',
         data: {
-            timestamp: now,
-            latency: latency,
-            blockTime: eventTimeMs,
+            timestamp: Date.now(),
             price: price,
-            stats: grStats.getStats(),
             candles: goldrushCandles
         }
     });
-}
-
-// --- GOLDRUSH: Process Update Pairs ---
-function processGoldrushUpdate(updates) {
-    if (!updates || updates.length === 0) return;
-
-    // We only subscribed to one pair
-    const update = updates[0];
-    const now = Date.now();
-
-    // Timestamp is ISO string, e.g. "2023-10-27T10:00:00Z"
-    const eventTimeMs = new Date(update.timestamp).getTime();
-    const latency = now - eventTimeMs;
-
-    // console.log(`[LATENCY DEBUG] GR: Now=${now} Event=${eventTimeMs} Lat=${latency}`);
-
-    // Metrics
-    latencyStats.goldrush.sum += latency;
-    latencyStats.goldrush.count++;
-    addLatencySample('goldrush', latency);
-    addLatencyDelta('goldrush', latency);
-    latestLatency.goldrush = latency;
-
-    // Rolling Stats
-    grStats.add(latency);
-    const stats = grStats.getStats();
-
-    countUpdate('goldrush');
-
-    const price = update.quote_rate;
-    if (price) {
-        pairs[SYMBOL].price = price;
-        pairs[SYMBOL].fastPrice = price;
-
-        broadcast({
-            type: 'LATENCY_UPDATE',
-            provider: 'GOLDRUSH',
-            data: {
-                timestamp: now,
-                latency: latency,
-                blockTime: eventTimeMs,
-                price: price,
-                stats: stats
-            }
-        });
-    }
 }
 
 // --- INITIALIZATION ---
