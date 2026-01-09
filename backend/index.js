@@ -603,6 +603,7 @@ async function processGoldrushCandles(candles) {
 // --- CODEX WEBSOCKET SUBSCRIPTION ---
 let codexCleanup = null;
 let geckoCleanup = null;
+let geckoTradeCleanup = null;
 
 
 async function initCodexProvider() {
@@ -877,6 +878,10 @@ function startGeckoStream() {
         try { geckoCleanup.close(); } catch (e) { }
         geckoCleanup = null;
     }
+    if (geckoTradeCleanup) {
+        try { geckoTradeCleanup.close(); } catch (e) { }
+        geckoTradeCleanup = null;
+    }
 
     // 1. Resolve Pool Address First
     // Gecko needs a TOKEN address to find pools, but TOKEN_ADDRESS is currently our Pair Address
@@ -934,11 +939,7 @@ function startGeckoStream() {
             // CoinGecko may send data directly or wrapped in msg.message
             const ohlcvData = msg.message || msg;
             if (ohlcvData && ohlcvData.c && ohlcvData.t) {
-                // Track first data load time (time from connection start to first packet)
-                if (connectionMetrics.gecko.loadTime === 0) {
-                    connectionMetrics.gecko.loadTime = Date.now() - connectionMetrics.gecko.loadStart;
-                    console.log(`✅ Gecko Time to First Data: ${connectionMetrics.gecko.loadTime}ms`);
-                }
+                // TTFD now calculated in processGeckoTrade (OnchainTrade) for speed
                 processGeckoOHLCV(ohlcvData);
             }
         });
@@ -953,6 +954,7 @@ function startGeckoStream() {
         // --- SECOND CONNECTION: OnchainTrade for LATENCY METRICS ---
         console.log('📊 Starting CoinGecko OnchainTrade Stream...');
         const tradeWs = new WebSocket(`wss://stream.coingecko.com/v1?x_cg_pro_api_key=${process.env.COINGECKO_API_KEY}`);
+        geckoTradeCleanup = tradeWs;
 
         tradeWs.on('open', () => {
             console.log("✅ Connected to CoinGecko OnchainTrade Stream!");
@@ -1041,6 +1043,12 @@ function processGeckoOHLCV(ohlcv) {
 function processGeckoTrade(trade) {
     if (!trade || !trade.t) return;
 
+    // Track TTFD here (First Trade Event = System Alive)
+    if (connectionMetrics.gecko.loadTime === 0) {
+        connectionMetrics.gecko.loadTime = Date.now() - connectionMetrics.gecko.loadStart;
+        console.log(`✅ Gecko Time to First Data (Trade): ${connectionMetrics.gecko.loadTime}ms`);
+    }
+
     const now = Date.now();
     // trade.t is Unix timestamp in ms (per CoinGecko docs: 1752072129000)
     const blockTime = trade.t;
@@ -1052,6 +1060,11 @@ function processGeckoTrade(trade) {
     addLatencySample('gecko', latency);
     addLatencyDelta('gecko', latency);
     countUpdate('gecko');
+
+    // Detailed Logging (User Request)
+    const price = parseFloat(trade.pu || 0).toFixed(2);
+    // console.log(`[GECKO   ] STREAM     | Tick received | Price: $${price} | Latency: ${latency}ms | Candles: ${geckoCandles.length}`);
+    process.stdout.write(`[GECKO   ] STREAM     | Tick received | Price: $${price} | Latency: ${latency}ms\r`);
 }
 
 // --- GOLDRUSH STREAM (raw graphql-ws) ---
@@ -1133,7 +1146,8 @@ function startStream() {
         complete: () => console.log('GoldRush OHLCV Stream Completed')
     });
 
-    goldrushCleanup = () => grWsClient.dispose();
+    // Cleanup logic for OHLCV client
+    const disposeOHLCV = () => grWsClient.dispose();
 
     // --- SEPARATE CLIENT: updatePairs for LATENCY METRICS ---
     console.log('📊 Starting GoldRush updatePairs Stream...');
@@ -1181,6 +1195,12 @@ function startStream() {
         },
         complete: () => console.log('GoldRush updatePairs Stream Completed')
     });
+
+    // Cleanup BOTH clients
+    goldrushCleanup = () => {
+        try { disposeOHLCV(); } catch (e) { }
+        try { grUpdatePairsClient.dispose(); } catch (e) { }
+    };
 }
 
 // --- GOLDRUSH: Process updatePairs for LATENCY METRICS ---
