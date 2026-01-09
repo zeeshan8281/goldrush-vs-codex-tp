@@ -7,7 +7,7 @@ import TokenSelector from './components/TokenSelector';
 function App() {
   const [socket, setSocket] = useState(null);
   const [connected, setConnected] = useState(false);
-  const [showStats, setShowStats] = useState(false);
+  const [showStats, setShowStats] = useState(true); // Stats page is now the default
   const [currentTimeframe, setCurrentTimeframe] = useState('1m');
   const [switchingTimeframe, setSwitchingTimeframe] = useState(false);
   const [currentChain, setCurrentChain] = useState('Solana'); // Track current chain
@@ -310,29 +310,14 @@ function App() {
               <Zap className="w-5 h-5 text-primary" />
             </div>
             <h1 className="font-bold text-xl tracking-tight">
-              GoldRush <span className="text-muted-foreground">&</span> Codex
-              <span className="ml-3 text-xs font-mono bg-white/5 px-2 py-1 rounded text-primary">TP SIMULATOR</span>
-              <span className="ml-2 text-xs font-mono bg-purple-500/20 px-2 py-1 rounded text-purple-400 border border-purple-500/30">{currentSymbol} ({currentChain})</span>
+              Performance Comparison
             </h1>
             <TokenSelector onChainChange={(chain) => setCurrentChain(chain === 'BASE' ? 'Base' : 'Solana')} />
-            <div className="flex items-center gap-1 ml-4 bg-white/5 rounded-lg p-1 border border-white/10">
-              {['1m', '5m', '15m'].map(tf => (
-                <button
-                  key={tf}
-                  onClick={() => switchTimeframe(tf)}
-                  disabled={switchingTimeframe}
-                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${currentTimeframe === tf
-                    ? 'bg-primary text-white'
-                    : 'text-muted-foreground hover:bg-white/10'
-                    } ${switchingTimeframe ? 'opacity-50' : ''}`}
-                >
-                  {tf}
-                </button>
-              ))}
-            </div>
+
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Dashboard toggle hidden - Stats is now the main page
             <button
               onClick={() => setShowStats(!showStats)}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${showStats ? 'bg-primary/20 border-primary/30 text-primary' : 'bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10'}`}
@@ -340,6 +325,7 @@ function App() {
               <BarChart3 size={14} />
               {showStats ? 'Dashboard' : 'Stats'}
             </button>
+            */}
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${connected ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
               <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
               {connected ? 'SYSTEM ONLINE' : 'DISCONNECTED'}

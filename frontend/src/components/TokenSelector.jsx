@@ -13,10 +13,11 @@ const TokenSelector = ({ onChainChange }) => {
         if (!address) return;
         setLoading(true);
         try {
+            const symbol = address.startsWith('0x') ? 'VIRTUALS' : 'BONK';
             const res = await fetch(`${API_URL}/update-token`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ address, symbol: 'CUSTOM' })
+                body: JSON.stringify({ address, symbol })
             });
             const data = await res.json();
             if (data.success && data.chain) {
@@ -34,16 +35,16 @@ const TokenSelector = ({ onChainChange }) => {
 
     return (
         <div className="flex items-center gap-2 bg-white/5 p-1 rounded-lg border border-white/10">
-            <input
-                type="text"
+            <select
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
-                placeholder="Enter Solana or Base Address..."
-                className="bg-transparent border-none focus:ring-0 text-xs w-64 text-white font-mono placeholder:text-white/30"
-            />
-            <span className={`text-[10px] px-2 py-1 rounded font-bold ${chain === 'BASE' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-purple-500/20 text-purple-400 border border-purple-500/30'}`}>
-                {chain}
-            </span>
+                className="bg-transparent border-none focus:ring-0 text-xs w-48 text-white font-mono cursor-pointer outline-none option:bg-black"
+                style={{ appearance: 'none' }}
+            >
+                <option value="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263">BONK (Solana)</option>
+                <option value="0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b">VIRTUALS (Base)</option>
+            </select>
+
             <button
                 onClick={handleUpdate}
                 disabled={loading}
