@@ -1269,11 +1269,7 @@ function processGoldrushUpdate(update) {
 
     const now = Date.now();
 
-    // Race Condition TTFD: If updatePairs wins the race (Likely)
-    if (connectionMetrics.goldrush.loadTime === 0) {
-        connectionMetrics.goldrush.loadTime = now - connectionMetrics.goldrush.loadStart;
-        console.log(`✅ GoldRush Time to First Data (UpdatePairs): ${connectionMetrics.goldrush.loadTime}ms`);
-    }
+    // TTFD now calculated in ohlcvCandlesForPair handler (standardized to bar chart stream)
 
     // timestamp is the block timestamp (ISO string)
     const blockTime = new Date(update.timestamp).getTime();
