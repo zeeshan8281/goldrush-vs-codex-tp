@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { createChart } from 'lightweight-charts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, Cell } from 'recharts';
 import { TrendingUp, TrendingDown, Trophy, Clock, Activity, BarChart3, Zap, Timer, Shield, Gauge, Info } from 'lucide-react';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3002';
@@ -14,11 +15,19 @@ const COLORS = {
 
 // Stat Card with 3 provider values stacked vertically
 const StatCard = ({ title, metricKey, data, icon: Icon, unit = '', formula = '' }) => {
-    const providers = [
-        { key: 'goldrush', label: 'GoldRush' },
-        { key: 'codex', label: 'Codex' },
-        { key: 'gecko', label: 'CoinGecko' }
+    const allProviders = [
+        { key: 'goldrush', label: 'GoldRush', color: COLORS.goldrush },
+        { key: 'codex', label: 'Codex', color: COLORS.codex },
+        { key: 'gecko', label: 'CoinGecko', color: COLORS.gecko }
     ];
+
+    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex', 'gecko']);
+
+    const toggleProvider = (key) => {
+        setVisibleProviders(prev =>
+            prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]
+        );
+    };
 
     return (
         <div className="stat-card">
@@ -32,11 +41,24 @@ const StatCard = ({ title, metricKey, data, icon: Icon, unit = '', formula = '' 
                     </div>
                 )}
             </div>
+            <div className="provider-toggles">
+                {allProviders.map(p => (
+                    <label key={p.key} className="provider-toggle" style={{ color: p.color }}>
+                        <input
+                            type="checkbox"
+                            checked={visibleProviders.includes(p.key)}
+                            onChange={() => toggleProvider(p.key)}
+                        />
+                        <span className="toggle-dot" style={{ background: visibleProviders.includes(p.key) ? p.color : '#555' }} />
+                        {p.label}
+                    </label>
+                ))}
+            </div>
             <div className="stat-card-body">
-                {providers.map(p => (
-                    <div key={p.key} className="stat-row" style={{ borderLeftColor: COLORS[p.key] }}>
+                {allProviders.filter(p => visibleProviders.includes(p.key)).map(p => (
+                    <div key={p.key} className="stat-row" style={{ borderLeftColor: p.color }}>
                         <span className="stat-label">{p.label}</span>
-                        <span className="stat-value" style={{ color: COLORS[p.key] }}>
+                        <span className="stat-value" style={{ color: p.color }}>
                             {data?.[p.key]?.[metricKey] ? Math.round(data[p.key][metricKey]).toLocaleString() : '—'} {unit}
                         </span>
                     </div>
@@ -51,6 +73,20 @@ const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '', for
     const chartRef = useRef(null);
     const seriesRefs = useRef({});
 
+    const allProviders = [
+        { key: 'goldrush', label: 'GoldRush', color: COLORS.goldrush },
+        { key: 'codex', label: 'Codex', color: COLORS.codex },
+        { key: 'gecko', label: 'CoinGecko', color: COLORS.gecko }
+    ];
+
+    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex']);
+
+    const toggleProvider = (key) => {
+        setVisibleProviders(prev =>
+            prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]
+        );
+    };
+
     useEffect(() => {
         if (!containerRef.current) return;
 
@@ -58,27 +94,30 @@ const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '', for
             height: 200,
             layout: { background: { type: 'solid', color: '#0a0a0a' }, textColor: '#666' },
             grid: { vertLines: { color: '#1a1a1a' }, horzLines: { color: '#1a1a1a' } },
-            timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#222' },
+            timeScale: { timeVisible: true, secondsVisible: true, borderColor: '#222' },
             rightPriceScale: { borderColor: '#222' },
             crosshair: { mode: 1 },
         });
 
         // Add 3 line series
-        seriesRefs.current.goldrush = chart.addLineSeries({
-            color: COLORS.goldrush,
-            lineWidth: 2,
-            title: 'GoldRush'
-        });
-        seriesRefs.current.codex = chart.addLineSeries({
-            color: COLORS.codex,
-            lineWidth: 2,
-            title: 'Codex'
-        });
+
         seriesRefs.current.gecko = chart.addLineSeries({
             color: COLORS.gecko,
             lineWidth: 2,
             title: 'Gecko'
         });
+
+        seriesRefs.current.goldrush = chart.addLineSeries({
+            color: COLORS.goldrush,
+            lineWidth: 3,
+            title: 'GoldRush'
+        });
+        seriesRefs.current.codex = chart.addLineSeries({
+            color: COLORS.codex,
+            lineWidth: 4,
+            title: 'Codex'
+        });
+
 
         chartRef.current = chart;
 
@@ -99,19 +138,20 @@ const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '', for
     useEffect(() => {
         if (!history || !chartRef.current) return;
 
-        const providers = ['goldrush', 'codex', 'gecko'];
-        providers.forEach(provider => {
+        // Update all series - show data or empty based on visibility
+        ['goldrush', 'codex', 'gecko'].forEach(provider => {
+            const isVisible = visibleProviders.includes(provider);
             const data = history.map(h => ({
                 time: Math.floor(h.time / 1000),
-                value: h[provider]?.[metricKey] || 0
+                value: isVisible ? (h[provider]?.[metricKey] || 0) : 0
             }));
-            seriesRefs.current[provider]?.setData(data);
+            seriesRefs.current[provider]?.setData(isVisible ? data : []);
         });
 
         if (history.length > 0) {
             chartRef.current.timeScale().fitContent();
         }
-    }, [history, metricKey]);
+    }, [history, metricKey, visibleProviders]);
 
     // Get current values for display
     const current = history && history.length > 0 ? history[history.length - 1] : null;
@@ -128,14 +168,27 @@ const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '', for
                     </div>
                 )}
             </div>
+            <div className="provider-toggles">
+                {allProviders.map(p => (
+                    <label key={p.key} className="provider-toggle" style={{ color: p.color }}>
+                        <input
+                            type="checkbox"
+                            checked={visibleProviders.includes(p.key)}
+                            onChange={() => toggleProvider(p.key)}
+                        />
+                        <span className="toggle-dot" style={{ background: visibleProviders.includes(p.key) ? p.color : '#555' }} />
+                        {p.label}
+                    </label>
+                ))}
+            </div>
             <div className="chart-container" ref={containerRef} />
             <div className="chart-legend">
-                {['goldrush', 'codex', 'gecko'].map(p => (
-                    <div key={p} className="legend-item" style={{ color: COLORS[p] }}>
-                        <span className="legend-dot" style={{ background: COLORS[p] }} />
-                        <span className="legend-name">{p.charAt(0).toUpperCase() + p.slice(1)}</span>
+                {allProviders.filter(p => visibleProviders.includes(p.key)).map(p => (
+                    <div key={p.key} className="legend-item" style={{ color: p.color }}>
+                        <span className="legend-dot" style={{ background: p.color }} />
+                        <span className="legend-name">{p.label}</span>
                         <span className="legend-value">
-                            {current?.[p]?.[metricKey]?.toFixed(metricKey === 'candlesPerSec' ? 2 : 0)}{unit}
+                            {current?.[p.key]?.[metricKey]?.toFixed(metricKey === 'candlesPerSec' ? 2 : 0)}{unit}
                         </span>
                     </div>
                 ))}
@@ -146,17 +199,27 @@ const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '', for
 
 // Latency Comparison Table - p95, Jitter, p99, Event Count
 const LatencyComparisonTable = ({ data, icon: Icon }) => {
-    const providers = [
+    const allProviders = [
         { key: 'goldrush', label: 'GoldRush', color: COLORS.goldrush },
         { key: 'codex', label: 'Codex', color: COLORS.codex },
         { key: 'gecko', label: 'CoinGecko', color: COLORS.gecko }
     ];
+
+    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex']);
+
+    const toggleProvider = (key) => {
+        setVisibleProviders(prev =>
+            prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]
+        );
+    };
 
     const formatValue = (value, unit = 'ms') => {
         if (value === undefined || value === null) return '—';
         if (value >= 1000) return `${(value / 1000).toFixed(1)} s`;
         return `${Math.round(value).toLocaleString()} ${unit}`;
     };
+
+    const visibleList = allProviders.filter(p => visibleProviders.includes(p.key));
 
     return (
         <div className="latency-comparison-table">
@@ -168,8 +231,21 @@ const LatencyComparisonTable = ({ data, icon: Icon }) => {
                     <div className="info-tooltip">Latency percentiles from Update Pairs stream. Lower is better.</div>
                 </div>
             </div>
+            <div className="provider-toggles">
+                {allProviders.map(p => (
+                    <label key={p.key} className="provider-toggle" style={{ color: p.color }}>
+                        <input
+                            type="checkbox"
+                            checked={visibleProviders.includes(p.key)}
+                            onChange={() => toggleProvider(p.key)}
+                        />
+                        <span className="toggle-dot" style={{ background: visibleProviders.includes(p.key) ? p.color : '#555' }} />
+                        {p.label}
+                    </label>
+                ))}
+            </div>
             <div className="latency-table">
-                {providers.map(p => (
+                {visibleList.map(p => (
                     <div key={p.key} className="latency-column" style={{ borderTopColor: p.color }}>
                         <div className="provider-name" style={{ color: p.color }}>{p.label}</div>
                         <div className="metric-row">
@@ -195,95 +271,109 @@ const LatencyComparisonTable = ({ data, icon: Icon }) => {
     );
 };
 
-// Candles Per Interval - Grouped Bar Chart
+// Events Per Interval - Grouped Bar Chart using Recharts
 const CandlesPerIntervalChart = ({ history, icon: Icon }) => {
-    const containerRef = useRef(null);
-    const chartRef = useRef(null);
-    const seriesRefs = useRef({});
+    const allProviders = [
+        { key: 'goldrush', label: 'GoldRush', color: '#ef4444' },
+        { key: 'codex', label: 'Codex', color: '#3b82f6' }
+    ];
 
-    useEffect(() => {
-        if (!containerRef.current) return;
+    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex']);
 
-        const chart = createChart(containerRef.current, {
-            height: 200,
-            layout: { background: { type: 'solid', color: '#0a0a0a' }, textColor: '#666' },
-            grid: { vertLines: { color: '#1a1a1a' }, horzLines: { color: '#1a1a1a' } },
-            timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#222' },
-            rightPriceScale: { borderColor: '#222' },
-        });
+    const toggleProvider = (key) => {
+        setVisibleProviders(prev =>
+            prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]
+        );
+    };
 
-        // Add histogram series for each provider
-        // Use shared 'right' scale so bars are comparable in height and crosshair label appears
+    // Transform history data for Recharts grouped bar format
+    // Aggregate 5s snapshots into 1-minute bins
+    // history contains ~60 items (last 5 mins at 5s intervals)
 
-        seriesRefs.current.codex = chart.addHistogramSeries({
-            color: COLORS.codex,
-            priceFormat: { type: 'volume' },
-            priceScaleId: 'right',
-        });
+    // Group by Minute Label (HH:MM)
+    const groupedData = history?.reduce((acc, h) => {
+        const time = new Date(h.time);
+        const label = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-        seriesRefs.current.goldrush = chart.addHistogramSeries({
-            color: COLORS.goldrush,
-            priceFormat: { type: 'volume' },
-            priceScaleId: 'right',
-        });
+        if (!acc[label]) {
+            acc[label] = { grRate: 0, cxRate: 0, count: 0 };
+        }
 
-        seriesRefs.current.gecko = chart.addHistogramSeries({
-            color: COLORS.gecko,
-            priceFormat: { type: 'volume' },
-            priceScaleId: 'right',
-        });
+        acc[label].grRate += (h.goldrush?.candlesPerSec || 0);
+        acc[label].cxRate += (h.codex?.candlesPerSec || 0);
+        acc[label].count += 1;
 
-        // Ensure right scale is visible
-        chart.priceScale('right').applyOptions({ visible: true });
+        return acc;
+    }, {}) || {};
 
-        chartRef.current = chart;
+    const chartData = Object.keys(groupedData).map(label => {
+        const group = groupedData[label];
+        // Average Rate * 60 = Estimated Events per Minute
+        const grVal = Math.round((group.grRate / group.count) * 60);
+        const cxVal = Math.round((group.cxRate / group.count) * 60);
 
-        const handleResize = () => {
-            if (containerRef.current && chartRef.current) {
-                chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
-            }
+        return {
+            time: label,
+            GoldRush: grVal,
+            Codex: cxVal
         };
-        window.addEventListener('resize', handleResize);
-        handleResize();
-
-        return () => {
-            window.removeEventListener('resize', handleResize);
-            chart.remove();
-        };
-    }, []);
-
-    useEffect(() => {
-        if (!history || !chartRef.current || history.length === 0) return;
-
-        // Use candlesPerSec * 60 to get approximate candles per minute
-        const providers = ['codex', 'goldrush', 'gecko'];
-        providers.forEach(provider => {
-            const data = history.map(h => ({
-                time: Math.floor(h.time / 1000),
-                value: Math.round((h[provider]?.candlesPerSec || 0) * 60) // Convert Hz to per-minute
-            }));
-            seriesRefs.current[provider]?.setData(data);
-        });
-
-        chartRef.current.timeScale().fitContent();
-    }, [history]);
+    }); // Keys (time) are naturally sorted if history is chronological
 
     return (
         <div className="comparison-chart">
             <div className="chart-header">
                 {Icon && <Icon size={18} />}
-                <span className="chart-title">Candles per Interval</span>
+                <span className="chart-title">Events per Interval</span>
                 <div className="info-tooltip-wrapper">
                     <Info size={14} className="info-icon" />
-                    <div className="info-tooltip">Count of candles/events per 1-minute interval for each provider.</div>
+                    <div className="info-tooltip">Event count per 1-minute interval for GoldRush (red) and Codex (blue).</div>
                 </div>
             </div>
-            <div className="chart-container" ref={containerRef} />
+            <div className="provider-toggles">
+                {allProviders.map(p => (
+                    <label key={p.key} className="provider-toggle" style={{ color: p.color }}>
+                        <input
+                            type="checkbox"
+                            checked={visibleProviders.includes(p.key)}
+                            onChange={() => toggleProvider(p.key)}
+                        />
+                        <span className="toggle-dot" style={{ background: visibleProviders.includes(p.key) ? p.color : '#555' }} />
+                        {p.label}
+                    </label>
+                ))}
+            </div>
+            <div style={{ width: '100%', height: 200 }}>
+                <ResponsiveContainer>
+                    <BarChart data={chartData} barGap={2} barCategoryGap="20%">
+                        <XAxis
+                            dataKey="time"
+                            tick={{ fill: '#666', fontSize: 10 }}
+                            axisLine={{ stroke: '#333' }}
+                            tickLine={{ stroke: '#333' }}
+                        />
+                        <YAxis
+                            tick={{ fill: '#666', fontSize: 10 }}
+                            axisLine={{ stroke: '#333' }}
+                            tickLine={{ stroke: '#333' }}
+                        />
+                        <Tooltip
+                            contentStyle={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 4 }}
+                            labelStyle={{ color: '#888' }}
+                        />
+                        {visibleProviders.includes('goldrush') && (
+                            <Bar dataKey="GoldRush" fill="#ef4444" radius={[2, 2, 0, 0]} />
+                        )}
+                        {visibleProviders.includes('codex') && (
+                            <Bar dataKey="Codex" fill="#3b82f6" radius={[2, 2, 0, 0]} />
+                        )}
+                    </BarChart>
+                </ResponsiveContainer>
+            </div>
             <div className="chart-legend">
-                {['goldrush', 'codex', 'gecko'].map(p => (
-                    <div key={p} className="legend-item" style={{ color: COLORS[p] }}>
-                        <span className="legend-dot" style={{ background: COLORS[p] }} />
-                        <span className="legend-name">{p.charAt(0).toUpperCase() + p.slice(1)}</span>
+                {allProviders.filter(p => visibleProviders.includes(p.key)).map(p => (
+                    <div key={p.key} className="legend-item" style={{ color: p.color }}>
+                        <span className="legend-dot" style={{ background: p.color }} />
+                        <span className="legend-name">{p.label}</span>
                     </div>
                 ))}
             </div>
@@ -574,6 +664,36 @@ function StatsPage({ onBack }) {
                     margin-top: 8px;
                     padding: 8px 0 0 0;
                     border-top: 1px solid #222;
+                }
+                
+                .provider-toggles {
+                    display: flex;
+                    gap: 16px;
+                    justify-content: center;
+                    margin-bottom: 8px;
+                    padding: 8px;
+                    background: rgba(255,255,255,0.03);
+                    border-radius: 6px;
+                }
+                
+                .provider-toggle {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    cursor: pointer;
+                    font-size: 0.85rem;
+                    user-select: none;
+                }
+                
+                .provider-toggle input[type="checkbox"] {
+                    display: none;
+                }
+                
+                .toggle-dot {
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 50%;
+                    transition: background 0.2s;
                 }
                 
                 .legend-item {

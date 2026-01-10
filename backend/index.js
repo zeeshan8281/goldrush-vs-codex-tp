@@ -488,11 +488,6 @@ function broadcast(msg) {
     });
 }
 
-// --- GOLDRUSH PAPER TRADING (Independent - uses ONLY GoldRush data) ---
-
-
-
-
 // --- GOLDRUSH: Process OHLCV Candles ---
 async function processGoldrushCandles(candles) {
     const fastArrival = Date.now();
@@ -507,10 +502,7 @@ async function processGoldrushCandles(candles) {
         const detectedSymbol = latestCandle.base_token.contract_ticker_symbol;
         if (detectedSymbol && detectedSymbol !== SYMBOL) {
             // IGNORE 'Bonk' if we are on BASE (prevent cross-talk from zombie streams)
-            if (CURRENT_CHAIN === 'BASE' && detectedSymbol === 'Bonk') {
-                // console.log("Ignored zombie Bonk packet on Base");
-                return;
-            }
+            if (CURRENT_CHAIN === 'BASE' && detectedSymbol === 'Bonk') return;
 
             console.log(`\n🔍 Auto-Detected Symbol: ${detectedSymbol} (was ${SYMBOL})`);
             const oldSymbol = SYMBOL;
@@ -607,14 +599,18 @@ let geckoTradeCleanup = null;
 
 
 async function initCodexProvider() {
-    // 1. Start Timer (for fair TTFD comparison including history fetch)
+    // Start TTFD timer
     connectionMetrics.codex.loadStart = Date.now();
 
-    // 2. Fetch History (Backfill) via HTTP
+    // Fetch History (Backfill) via HTTP - TTFD ends when this completes
     console.log("🐢 Fetching Codex History...");
     await fetchCodexPrice();
 
-    // 3. Start Live Subscription via SDK (Low-Level)
+    // TTFD = time to get first data (HTTP history)
+    connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
+    console.log(`✅ Codex Time to First Data (HTTP): ${connectionMetrics.codex.loadTime}ms`);
+
+    // Start Live Subscription via SDK
     startCodexSubscription();
 }
 
@@ -625,7 +621,7 @@ function startCodexSubscription() {
     }
 
     console.log("🐢 Connecting to Codex GraphQL Stream (Events)...");
-    // connectionMetrics.codex.loadStart = Date.now(); // NOW SET IN initCodexProvider
+    connectionMetrics.codex.loadStart = Date.now(); // TTFD timer starts here
     connectionMetrics.codex.connects++;
 
     // Raw graphql-ws connection (NO SDK)
@@ -684,7 +680,7 @@ function startCodexSubscription() {
             next: (result) => {
                 const events = result?.data?.onEventsCreated?.events;
                 if (events && events.length > 0) {
-                    // TTFD now calculated in onBarsUpdated subscription (standardized)
+                    // TTFD now calculated from HTTP history fetch in initCodexProvider
                     processCodexEvents(events);
                 }
             },
@@ -740,16 +736,43 @@ function startCodexSubscription() {
         { query: barsQuery, variables: { pairId } },
         {
             next: (result) => {
+                const now = Date.now();
                 const bar = result?.data?.onBarsUpdated;
                 if (bar && bar.aggregates?.r1?.usd) {
-                    // TTFD: First bar update = System Ready (per standardization)
-                    if (connectionMetrics.codex.loadTime === 0) {
-                        connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
-                        console.log(`✅ Codex Time to First Data (onBarsUpdated): ${connectionMetrics.codex.loadTime}ms`);
-                    }
-                    // Count each bar update for throughput chart
                     countUpdate('codex');
-                    // console.log(`📊 Codex Bar Update: ${JSON.stringify(bar.aggregates.r1.usd).substring(0, 100)}`);
+
+                    // Latency: now - bar timestamp (Unix seconds)
+                    const barTimeMs = bar.timestamp * 1000;
+                    const latency = now - barTimeMs;
+                    const price = bar.aggregates.r1.usd.c;
+
+                    // Metrics (same stream type as GoldRush updatePairs)
+                    latencyStats.codex.sum += latency;
+                    latencyStats.codex.count++;
+                    addLatencySample('codex', latency);
+                    addLatencyDelta('codex', latency);
+                    latestLatency.codex = latency;
+
+                    // Rolling Stats
+                    cxStats.add(latency);
+                    const stats = cxStats.getStats();
+                    codexLatestStats = stats;
+
+                    const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+                    console.log(`[${timeStr}] [CODEX   ] STREAM     | Tick received | Price: $${parseFloat(price).toFixed(2)} | Latency: ${latency}ms`);
+
+                    broadcast({
+                        type: 'SLOW_TICK',
+                        data: {
+                            pair: SYMBOL,
+                            price: price,
+                            timestamp: now,
+                            latency: latency,
+                            candles: [],
+                            throughput: avgCandlesPerSecond.codex,
+                            stats: stats
+                        }
+                    });
                 }
             },
             error: (err) => console.error('❌ Codex Bars Subscription Error:', err),
@@ -767,57 +790,20 @@ function startCodexSubscription() {
 
 
 function processCodexEvents(events) {
-    const now = Date.now();
+    // NOTE: Latency stats are now calculated in onBarsUpdated for equal comparison with GoldRush
+    // This function only updates the price state from swap events
 
-    // Process all events in the batch
     events.forEach(event => {
-        // We only care about SWAP events for price/latency
         if (event.data && event.data.priceUsd) {
             const price = parseFloat(event.data.priceUsd);
-            const eventTimeMs = event.timestamp * 1000;
-            const latency = now - eventTimeMs;
 
-            // console.log(`[LATENCY DEBUG] CX Event: Now=${now} BlockTime=${eventTimeMs} Lat=${latency}`);
-
-            // Update State
+            // Update State only
             if (!pairs[SYMBOL]) pairs[SYMBOL] = { price: 0, fastPrice: 0, slowPrice: 0, geckoPrice: 0 };
             pairs[SYMBOL].slowPrice = price;
 
-            // Metrics
-            latencyStats.codex.sum += latency;
-            latencyStats.codex.count++;
-            addLatencySample('codex', latency);
-            addLatencyDelta('codex', latency);
-            latestLatency.codex = latency;
-
-            // Rolling Stats
-            cxStats.add(latency);
-            const stats = cxStats.getStats();
-
-            // Update global stats for history snapshot
-            codexLatestStats = stats;
-
-            logger.codex.stream(price, latency, 0); // 0 candles
-            // Note: Throughput counting now done in onBarsUpdated subscription
-
-            broadcast({
-                type: 'SLOW_TICK',
-                data: {
-                    pair: SYMBOL,
-                    price: price,
-                    timestamp: now,
-                    latency: latency,
-                    candles: [], // No candles from event stream
-                    throughput: avgCandlesPerSecond.codex,
-                    stats: stats
-                }
-            });
-
             // Update global stats capture
             updatePairs(SYMBOL, {
-                slowPrice: price,
-                lastLatency: latency,
-                stats: stats
+                slowPrice: price
             });
         }
     });
@@ -1121,9 +1107,8 @@ function processGeckoTrade(trade) {
     addLatencyDelta('gecko', latency);
     // Note: Throughput counting now done in processGeckoOHLCV (bar chart uses OHLCV)
 
-    // Detailed Logging (User Request)
+    // Log Gecko latency
     const price = parseFloat(trade.pu || 0).toFixed(2);
-    // console.log(`[GECKO   ] STREAM     | Tick received | Price: $${price} | Latency: ${latency}ms | Candles: ${geckoCandles.length}`);
     process.stdout.write(`[GECKO   ] STREAM     | Tick received | Price: $${price} | Latency: ${latency}ms\r`);
 }
 
@@ -1274,6 +1259,11 @@ function processGoldrushUpdate(update) {
     // timestamp is the block timestamp (ISO string)
     const blockTime = new Date(update.timestamp).getTime();
     const latency = now - blockTime; // client_receive_time - block_time
+
+    // Log latency like Codex
+    const price = parseFloat(update.quote_rate_usd || 0).toFixed(2);
+    const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+    console.log(`[${timeStr}] [GOLDRUSH] STREAM     | Tick received | Price: $${price} | Latency: ${latency}ms | Timestamp: ${update.timestamp}`);
 
     // Add to rolling stats for p50/p95/p99
     grStats.add(latency);
