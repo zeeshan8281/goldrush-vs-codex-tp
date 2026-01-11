@@ -9,19 +9,17 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3002';
 // Provider colors (with transparency for overlapping bars)
 const COLORS = {
     goldrush: '#ef4444cc',
-    codex: '#3b82f6cc',
-    gecko: '#eab308cc'
+    codex: '#3b82f6cc'
 };
 
 // Stat Card with 3 provider values stacked vertically
 const StatCard = ({ title, metricKey, data, icon: Icon, unit = '', formula = '' }) => {
     const allProviders = [
         { key: 'goldrush', label: 'GoldRush', color: COLORS.goldrush },
-        { key: 'codex', label: 'Codex', color: COLORS.codex },
-        { key: 'gecko', label: 'CoinGecko', color: COLORS.gecko }
+        { key: 'codex', label: 'Codex', color: COLORS.codex }
     ];
 
-    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex', 'gecko']);
+    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex']);
 
     const toggleProvider = (key) => {
         setVisibleProviders(prev =>
@@ -75,8 +73,7 @@ const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '', for
 
     const allProviders = [
         { key: 'goldrush', label: 'GoldRush', color: COLORS.goldrush },
-        { key: 'codex', label: 'Codex', color: COLORS.codex },
-        { key: 'gecko', label: 'CoinGecko', color: COLORS.gecko }
+        { key: 'codex', label: 'Codex', color: COLORS.codex }
     ];
 
     const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex']);
@@ -139,7 +136,7 @@ const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '', for
         if (!history || !chartRef.current) return;
 
         // Update all series - show data or empty based on visibility
-        ['goldrush', 'codex', 'gecko'].forEach(provider => {
+        ['goldrush', 'codex'].forEach(provider => {
             const isVisible = visibleProviders.includes(provider);
             const data = history.map(h => ({
                 time: Math.floor(h.time / 1000),
@@ -201,8 +198,7 @@ const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '', for
 const LatencyComparisonTable = ({ data, icon: Icon }) => {
     const allProviders = [
         { key: 'goldrush', label: 'GoldRush', color: COLORS.goldrush },
-        { key: 'codex', label: 'Codex', color: COLORS.codex },
-        { key: 'gecko', label: 'CoinGecko', color: COLORS.gecko }
+        { key: 'codex', label: 'Codex', color: COLORS.codex }
     ];
 
     const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex']);
