@@ -460,12 +460,12 @@ function StatsPage({ onBack }) {
                     icon={Gauge}
                 />
                 <ComparisonChart
-                    title="Latency Std Dev"
+                    title="Latency Volatility (Max Delta)"
                     metricKey="stdDev"
                     history={metricsHistory}
                     icon={Activity}
                     unit="ms"
-                    formula="Standard deviation of latency (sqrt of variance) over rolling window."
+                    formula="Maximum difference (delta) between consecutive latency samples in the interval."
                 />
             </div>
 
