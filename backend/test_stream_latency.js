@@ -1,106 +1,81 @@
-/**
- * Stream Latency Comparison Test
- * 
- * Compares latency between:
- * - GoldRush updatePairs stream
- * - Codex onBarsUpdated stream
- * 
- * Run: node test_stream_latency.js
- */
-
 require('dotenv').config();
 const { createClient } = require('graphql-ws');
 const WebSocket = require('ws');
 
-// VIRTUAL pair address on Base
 const PAIR_ADDRESS = '0x9c087eb773291e50cf6c6a90ef0f4500e349b903';
-const CODEX_NETWORK_ID = 8453; // Base
+const CODEX_NETWORK_ID = 8453;
+const TEST_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 
-// Test duration: 20 minutes
-const TEST_DURATION_MS = 20 * 60 * 1000;
-
-// Event counters
-let goldrushEventCount = 0;
-let codexEventCount = 0;
-
-// Latency accumulators for average
-let goldrushLatencies = [];
-let codexLatencies = [];
-
-// Clients for cleanup
 let grClient = null;
 let codexClient = null;
+let grCount = 0;
+let codexCount = 0;
 
-const startTime = Date.now();
+// Store events for comparison
+const grEvents = [];
+const codexEvents = [];
 
-console.log('='.repeat(80));
-console.log('🚀 STREAM LATENCY COMPARISON TEST');
-console.log('='.repeat(80));
-console.log(`Pair: ${PAIR_ADDRESS}`);
-console.log(`Network: Base (${CODEX_NETWORK_ID})`);
-console.log(`Duration: 20 minutes`);
-console.log(`Start Time: ${new Date(startTime).toISOString()}`);
-console.log('='.repeat(80));
-
-// ============================================================================
-// GOLDRUSH updatePairs STREAM
-// ============================================================================
+// GOLDRUSH STREAM
 function startGoldrushStream() {
-    console.log('\n🟠 [GOLDRUSH] Starting updatePairs stream...');
-
     grClient = createClient({
         url: 'wss://gr-staging-v2.streaming.covalenthq.com/graphql',
         webSocketImpl: WebSocket,
         connectionParams: {
             GOLDRUSH_API_KEY: process.env.COVALENT_API_KEY
-        },
-        on: {
-            connected: () => console.log('🟠 [GOLDRUSH] WebSocket Connected'),
-            error: (err) => console.error('🟠 [GOLDRUSH] WebSocket Error:', err),
         }
     });
 
-    const query = `subscription {
-        updatePairs(
-            chain_name: BASE_MAINNET
-            pair_addresses: ["${PAIR_ADDRESS}"]
-        ) {
-            timestamp
-        }
-    }`;
+    const query = `
+        subscription UpdatePairs($pair_addresses: [String!]) {
+            updatePairs(
+                chain_name: BASE_MAINNET
+                pair_addresses: $pair_addresses
+            ) {
+                timestamp
+                volume
+                volume_usd
+                swap_counts {
+                    last_5m
+                    last_1hr
+                }
+                price_deltas {
+                    last_5m
+                    last_1hr
+                }
+                quote_rate_usd
+            }
+        }`;
 
-    console.log('🟠 [GOLDRUSH] Subscribed to updatePairs\n');
-
-    grClient.subscribe({ query }, {
+    grClient.subscribe({ query, variables: { pair_addresses: [PAIR_ADDRESS] } }, {
         next: (result) => {
-            const now = Date.now();
+            const arrivedAt = Date.now();
             const data = result?.data?.updatePairs;
-
-            if (data && data.timestamp) {
-                goldrushEventCount++;
-                const serverTimestamp = new Date(data.timestamp).getTime();
-                const latencyMs = now - serverTimestamp;
-                goldrushLatencies.push(latencyMs);
-
-                console.log('─'.repeat(80));
-                console.log(`🟠 [GOLDRUSH] updatePairs (#${goldrushEventCount})`);
-                console.log(`   Timestamp:    ${data.timestamp}`);
-                console.log(`   Wall Clock:   ${new Date(now).toISOString()}`);
-                console.log(`   LATENCY:      ${latencyMs}ms (${(latencyMs / 1000).toFixed(2)}s)`);
-                console.log('─'.repeat(80));
+            if (data) {
+                grCount++;
+                grEvents.push({
+                    timestamp: data.timestamp,
+                    arrivedAt,
+                    volume: data.volume_usd,
+                    price: data.quote_rate_usd,
+                    swaps: data.swap_counts?.last_5m
+                });
+                console.log(`\n🟠 GOLDRUSH #${grCount}`);
+                console.log(`   Timestamp: ${data.timestamp}`);
+                console.log(`   Volume:    $${data.volume_usd}`);
+                console.log(`   Price:     $${data.quote_rate_usd}`);
+                console.log(`   Swaps(5m): ${data.swap_counts?.last_5m}`);
+                const serverTime = new Date(data.timestamp).getTime();
+                const latencyMs = arrivedAt - serverTime;
+                console.log(`Latency: ${latencyMs}ms`);
             }
         },
-        error: (err) => console.error('🟠 [GOLDRUSH] Subscription Error:', err),
-        complete: () => console.log('🟠 [GOLDRUSH] Subscription Complete')
+        error: (err) => console.error('🟠 [GOLDRUSH] Error:', err),
+        complete: () => console.log('🟠 [GOLDRUSH] Complete')
     });
 }
 
-// ============================================================================
-// CODEX onBarsUpdated STREAM
-// ============================================================================
+// CODEX STREAM
 function startCodexStream() {
-    console.log('\n🔵 [CODEX] Starting onBarsUpdated stream...');
-
     const pairId = `${PAIR_ADDRESS}:${CODEX_NETWORK_ID}`;
 
     codexClient = createClient({
@@ -108,10 +83,6 @@ function startCodexStream() {
         webSocketImpl: WebSocket,
         connectionParams: {
             Authorization: process.env.CODEX_API_KEY
-        },
-        on: {
-            connected: () => console.log('🔵 [CODEX] WebSocket Connected'),
-            error: (err) => console.error('🔵 [CODEX] WebSocket Error:', err),
         }
     });
 
@@ -120,103 +91,114 @@ function startCodexStream() {
             onBarsUpdated(pairId: $pairId) {
                 timestamp
                 eventSortKey
+                aggregates {
+                    r1 {
+                        t
+                        usd {
+                            o
+                            h
+                            l
+                            c
+                            volume
+                            transactions
+                            buyVolume
+                            sellVolume
+                            liquidity
+                        }
+                    }
+                    r5 {
+                        t
+                        usd {
+                            o
+                            h
+                            l
+                            c
+                            volume
+                            transactions
+                            buyVolume
+                            sellVolume
+                            liquidity
+                        }
+                    }
+                }
             }
         }
     `;
-
-    console.log(`🔵 [CODEX] Subscribing to pairId: ${pairId}\n`);
 
     codexClient.subscribe(
         { query, variables: { pairId } },
         {
             next: (result) => {
-                const now = Date.now();
+                const arrivedAt = Date.now();
                 const bar = result?.data?.onBarsUpdated;
+                if (bar?.aggregates) {
+                    codexCount++;
+                    const readableTime = new Date(bar.timestamp * 1000).toISOString();
+                    const r1 = bar.aggregates.r1?.usd;
+                    const r5 = bar.aggregates.r5?.usd;
 
-                if (bar) {
-                    codexEventCount++;
-                    // Codex timestamp is Unix seconds
-                    const serverTimestamp = bar.timestamp * 1000;
-                    const latencyMs = now - serverTimestamp;
-                    codexLatencies.push(latencyMs);
-                    const humanTime = new Date(serverTimestamp).toISOString();
+                    codexEvents.push({
+                        timestamp: readableTime,
+                        arrivedAt,
+                        r1Volume: r1?.volume,
+                        r5Volume: r5?.volume,
+                        r1Price: r1?.c,
+                        r5Price: r5?.c,
+                        r1Txns: r1?.transactions,
+                        r5Txns: r5?.transactions
+                    });
 
-                    console.log('─'.repeat(80));
-                    console.log(`🔵 [CODEX] onBarsUpdated (#${codexEventCount})`);
-                    console.log(`   Timestamp:    ${bar.timestamp} (Unix) → ${humanTime}`);
-                    console.log(`   eventSortKey: ${bar.eventSortKey}`);
-                    console.log(`   Wall Clock:   ${new Date(now).toISOString()}`);
-                    console.log(`   LATENCY:      ${latencyMs}ms (${(latencyMs / 1000).toFixed(2)}s)`);
-                    console.log('─'.repeat(80));
+                    console.log(`\n🔵 CODEX #${codexCount}`);
+                    console.log(`   Timestamp:    ${readableTime}`);
+                    console.log(`   R1 (1-min):   Price: $${r1?.c} | Vol: $${r1?.volume} | Txns: ${r1?.transactions}`);
+                    console.log(`   R5 (5-min):   Price: $${r5?.c} | Vol: $${r5?.volume} | Txns: ${r5?.transactions}`);
+                    const serverTime = bar.timestamp * 1000; // Convert Unix seconds to milliseconds
+                    const latencyMs = arrivedAt - serverTime;
+                    console.log(`Latency: ${latencyMs}ms`);
                 }
             },
-            error: (err) => console.error('🔵 [CODEX] Subscription Error:', err),
-            complete: () => console.log('🔵 [CODEX] Subscription Complete')
+            error: (err) => console.error('🔵 [CODEX] Error:', err),
+            complete: () => console.log('🔵 [CODEX] Complete')
         }
     );
 }
 
-// ============================================================================
-// PRINT FINAL RESULTS
-// ============================================================================
-function printFinalResults() {
-    const endTime = Date.now();
-    const durationMs = endTime - startTime;
-    const durationMins = (durationMs / 1000 / 60).toFixed(2);
-
-    const grAvgLatency = goldrushLatencies.length > 0
-        ? (goldrushLatencies.reduce((a, b) => a + b, 0) / goldrushLatencies.length).toFixed(0)
-        : 'N/A';
-
-    const codexAvgLatency = codexLatencies.length > 0
-        ? (codexLatencies.reduce((a, b) => a + b, 0) / codexLatencies.length).toFixed(0)
-        : 'N/A';
-
-    console.log('\n');
+// SUMMARY REPORT
+function printSummary() {
+    console.log('\n' + '='.repeat(80));
+    console.log('TIMESTAMP COMPARISON');
     console.log('='.repeat(80));
-    console.log('📊 FINAL RESULTS');
-    console.log('='.repeat(80));
-    console.log(`Test Duration: ${durationMins} minutes`);
-    console.log(`Start: ${new Date(startTime).toISOString()}`);
-    console.log(`End:   ${new Date(endTime).toISOString()}`);
-    console.log('─'.repeat(80));
-    console.log('');
-    console.log('  PROVIDER       │  EVENTS  │  AVG LATENCY');
-    console.log('─'.repeat(50));
-    console.log(`  🟠 GoldRush    │  ${String(goldrushEventCount).padStart(6)}  │  ${grAvgLatency}ms`);
-    console.log(`  🔵 Codex       │  ${String(codexEventCount).padStart(6)}  │  ${codexAvgLatency}ms`);
-    console.log('─'.repeat(50));
-    console.log('');
-    console.log('='.repeat(80));
+    console.log('Codex Timestamp          | Codex Vol    | GoldRush Timestamp       | GoldRush Vol');
+    console.log('-'.repeat(80));
 
-    // Cleanup
+    const maxLen = Math.max(grEvents.length, codexEvents.length);
+    for (let i = 0; i < maxLen; i++) {  // REMOVED the Math.min(maxLen, 20) limit
+        const cx = codexEvents[i];
+        const gr = grEvents[i];
+        const cxTime = cx?.timestamp?.substring(0, 24) || '                        ';
+        const cxVol = cx?.r5Volume ? `$${parseFloat(cx.r5Volume).toFixed(2)}` : '          ';
+        const grTime = gr?.timestamp?.substring(0, 24) || '                        ';
+        const grVol = gr?.volume ? `$${parseFloat(gr.volume).toFixed(2)}` : '';
+        console.log(`${cxTime.padEnd(24)} | ${cxVol.padEnd(12)} | ${grTime.padEnd(24)} | ${grVol}`);
+    }
+
+    console.log('='.repeat(80));
+}
+
+// MAIN
+console.log('🚀 Starting comparison test...');
+console.log(`📍 Pair: ${PAIR_ADDRESS}`);
+console.log(`⏰ Duration: ${TEST_DURATION_MS / 1000 / 60} minutes`);
+console.log('='.repeat(80));
+
+startGoldrushStream();
+startCodexStream();
+
+setTimeout(() => {
+    console.log('\n✅ Test complete');
+    printSummary();
+
     if (grClient) grClient.dispose();
     if (codexClient) codexClient.dispose();
-
     process.exit(0);
-}
-
-// ============================================================================
-// MAIN
-// ============================================================================
-function main() {
-    // Start both streams
-    startGoldrushStream();
-    startCodexStream();
-
-    // Set timer for 20 minutes
-    console.log(`\n⏱️  Test will run for 20 minutes. Auto-stopping at ${new Date(startTime + TEST_DURATION_MS).toISOString()}\n`);
-
-    setTimeout(() => {
-        console.log('\n\n⏱️  20 minutes elapsed! Stopping test...');
-        printFinalResults();
-    }, TEST_DURATION_MS);
-}
-
-main();
-
-// Handle Ctrl+C
-process.on('SIGINT', () => {
-    console.log('\n\n🛑 Manual stop requested...');
-    printFinalResults();
-});
+}, TEST_DURATION_MS);

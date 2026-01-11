@@ -13,6 +13,27 @@ const grStats = new RollingStats();
 const cxStats = new RollingStats();
 const gkStats = new RollingStats(); // New Stats for Gecko
 
+// Globa Interval Buckets for Raw Jitter (Reset every 5s)
+let intervalLatencies = {
+    goldrush: [],
+    codex: [],
+    gecko: []
+};
+
+// Carry-Forward Stats (Prevent 0-flicker)
+let lastIntervalStats = {
+    goldrush: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 },
+    codex: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 },
+    gecko: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 }
+};
+
+// Track last value of previous interval for Delta calculation
+let lastIntervalEndVal = {
+    goldrush: 0,
+    codex: 0,
+    gecko: 0
+};
+
 let codexLatestStats = { p50: 0, p95: 0, jitter: 0 };
 
 global.getSymbol = () => SYMBOL;
@@ -377,13 +398,45 @@ setInterval(() => {
     // --- METRICS HISTORY SNAPSHOT (for comparison charts) ---
     const grCurrentStats = grStats.getStats();
 
+    // Calculate Raw Jitter (Max Delta)
+    // Use Max Delta (biggest jump) to show volatility even with low throughput
+
+    function calculateMaxIntervalDelta(samples, prevVal) {
+        if (!samples || samples.length === 0) return 0;
+        let maxD = 0;
+        let prev = prevVal;
+
+        // If prev is 0 (first run), use first sample as baseline (delta 0)
+        if (prev === 0 && samples.length > 0) prev = samples[0];
+
+        for (const val of samples) {
+            const diff = Math.abs(val - prev);
+            if (diff > maxD) maxD = diff;
+            prev = val;
+        }
+        return maxD;
+    }
+
+    if (intervalLatencies.goldrush.length > 0) {
+        lastIntervalStats.goldrush.stdDev = calculateMaxIntervalDelta(intervalLatencies.goldrush, lastIntervalEndVal.goldrush);
+        lastIntervalEndVal.goldrush = intervalLatencies.goldrush[intervalLatencies.goldrush.length - 1]; // Update last val
+    }
+    if (intervalLatencies.codex.length > 0) {
+        lastIntervalStats.codex.stdDev = calculateMaxIntervalDelta(intervalLatencies.codex, lastIntervalEndVal.codex);
+        lastIntervalEndVal.codex = intervalLatencies.codex[intervalLatencies.codex.length - 1];
+    }
+    if (intervalLatencies.gecko.length > 0) {
+        lastIntervalStats.gecko.stdDev = calculateMaxIntervalDelta(intervalLatencies.gecko, lastIntervalEndVal.gecko);
+        lastIntervalEndVal.gecko = intervalLatencies.gecko[intervalLatencies.gecko.length - 1];
+    }
+
     const metricsSnapshot = {
         time: Date.now(),
         goldrush: {
             loadTime: connectionMetrics.goldrush.loadTime,
             candlesPerSec: avgCandlesPerSecond.goldrush,
-            jitter: grCurrentStats.jitter,
-            stdDev: grCurrentStats.stdDev,
+            jitter: grCurrentStats.jitter,              // Rolling Jitter (for Table)
+            stdDev: lastIntervalStats.goldrush.stdDev,  // Max Delta (for Chart)
             p95: grCurrentStats.p95,
             p99: grCurrentStats.p99,
             eventCount: grStats.samples?.length || 0
@@ -391,8 +444,8 @@ setInterval(() => {
         codex: {
             loadTime: connectionMetrics.codex.loadTime,
             candlesPerSec: avgCandlesPerSecond.codex,
-            jitter: codexLatestStats.jitter,
-            stdDev: codexLatestStats.stdDev,
+            jitter: codexLatestStats.jitter,            // Rolling Jitter (for Table)
+            stdDev: lastIntervalStats.codex.stdDev,     // Max Delta (for Chart)
             p95: codexLatestStats.p95,
             p99: codexLatestStats.p99,
             eventCount: cxStats.samples?.length || 0
@@ -400,13 +453,19 @@ setInterval(() => {
         gecko: {
             loadTime: connectionMetrics.gecko.loadTime,
             candlesPerSec: avgCandlesPerSecond.gecko,
-            jitter: gkStats.getStats().jitter,
-            stdDev: gkStats.getStats().stdDev,
+            jitter: gkStats.getStats().jitter,          // Rolling Jitter (for Table)
+            stdDev: lastIntervalStats.gecko.stdDev,     // Max Delta (for Chart)
             p95: gkStats.getStats().p95,
             p99: gkStats.getStats().p99,
             eventCount: gkStats.samples?.length || 0
         }
     };
+
+    // Reset Interval Buckets for next snapshot
+    intervalLatencies.goldrush = [];
+    intervalLatencies.codex = [];
+    intervalLatencies.gecko = [];
+
     metricsHistory.push(metricsSnapshot);
     if (metricsHistory.length > 60) metricsHistory.shift(); // Keep last 5 min
 }, 5000);
@@ -758,6 +817,9 @@ function startCodexSubscription() {
                     const stats = cxStats.getStats();
                     codexLatestStats = stats;
 
+                    // Interval Push (Raw Jitter)
+                    if (latency >= 0 && latency < 60000) intervalLatencies.codex.push(latency);
+
                     const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
                     console.log(`[${timeStr}] [CODEX   ] STREAM     | Tick received | Price: $${parseFloat(price).toFixed(2)} | Latency: ${latency}ms`);
 
@@ -1105,6 +1167,10 @@ function processGeckoTrade(trade) {
     latestLatency.gecko = latency;
     addLatencySample('gecko', latency);
     addLatencyDelta('gecko', latency);
+
+    // Interval Push (Raw Jitter)
+    if (intervalLatencies.gecko) intervalLatencies.gecko.push(latency);
+
     // Note: Throughput counting now done in processGeckoOHLCV (bar chart uses OHLCV)
 
     // Log Gecko latency
@@ -1268,6 +1334,10 @@ function processGoldrushUpdate(update) {
     // Add to rolling stats for p50/p95/p99
     grStats.add(latency);
     latestLatency.goldrush = latency;
+
+    // Interval Push (Raw Jitter)
+    intervalLatencies.goldrush.push(latency);
+
     addLatencySample('goldrush', latency);
     addLatencyDelta('goldrush', latency);
     countUpdate('goldrush');
