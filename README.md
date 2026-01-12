@@ -24,8 +24,8 @@ To provide an **"apples-to-apples" comparison** of live market data streams by r
 
 ```mermaid
 graph TD
-    A[GoldRush API] -->|WebSocket (updatePairs)| C(Node.js Backend)
-    B[Codex API] -->|GraphQL Sub (Events)| C
+    A[GoldRush API] -->|"WebSocket (updatePairs)"| C(Node.js Backend)
+    B[Codex API] -->|"GraphQL Sub (Events)"| C
     C -->|Aggregated Metrics| D[React Frontend]
     C -->|Trade Simulation| D
     D -->|Charts & Logs| E(User Interface)
