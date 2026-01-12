@@ -733,6 +733,7 @@ function startCodexSubscription() {
         },
         {
             next: (result) => {
+                const events = result?.data?.onEventsCreated?.events;
                 if (events && events.length > 0) {
                     // Track first data load time (WS Connection -> First Packet)
                     if (connectionMetrics.codex.loadTime === 0) {
