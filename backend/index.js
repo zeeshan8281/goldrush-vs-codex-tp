@@ -661,16 +661,9 @@ let geckoTradeCleanup = null;
 
 
 async function initCodexProvider() {
-    // Start TTFD timer
-    connectionMetrics.codex.loadStart = Date.now();
-
-    // Fetch History (Backfill) via HTTP - TTFD ends when this completes
+    // Fetch History (Backfill) via HTTP - purely for chart data
     console.log("🐢 Fetching Codex History...");
     await fetchCodexPrice();
-
-    // TTFD = time to get first data (HTTP history)
-    connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
-    console.log(`✅ Codex Time to First Data (HTTP): ${connectionMetrics.codex.loadTime}ms`);
 
     // Start Live Subscription via SDK
     startCodexSubscription();
@@ -740,9 +733,12 @@ function startCodexSubscription() {
         },
         {
             next: (result) => {
-                const events = result?.data?.onEventsCreated?.events;
                 if (events && events.length > 0) {
-                    // TTFD now calculated from HTTP history fetch in initCodexProvider
+                    // Track first data load time (WS Connection -> First Packet)
+                    if (connectionMetrics.codex.loadTime === 0) {
+                        connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
+                        console.log(`✅ Codex Time to First Data (WS): ${connectionMetrics.codex.loadTime}ms`);
+                    }
                     processCodexEvents(events);
                 }
             },
@@ -801,6 +797,11 @@ function startCodexSubscription() {
                 const now = Date.now();
                 const bar = result?.data?.onBarsUpdated;
                 if (bar && bar.aggregates?.r1?.usd) {
+                    // Track TTFD if not already rejected
+                    if (connectionMetrics.codex.loadTime === 0) {
+                        connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
+                        console.log(`✅ Codex Time to First Data (WS-Bars): ${connectionMetrics.codex.loadTime}ms`);
+                    }
                     countUpdate('codex');
 
                     // Latency: now - bar timestamp (Unix seconds)
