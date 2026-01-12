@@ -439,7 +439,8 @@ setInterval(() => {
             stdDev: lastIntervalStats.goldrush.stdDev,  // Max Delta (for Chart)
             p95: grCurrentStats.p95,
             p99: grCurrentStats.p99,
-            eventCount: grStats.samples?.length || 0
+            eventCount: grStats.samples?.length || 0,
+            avgLatency: grAvg
         },
         codex: {
             loadTime: connectionMetrics.codex.loadTime,
@@ -448,7 +449,8 @@ setInterval(() => {
             stdDev: lastIntervalStats.codex.stdDev,     // Max Delta (for Chart)
             p95: codexLatestStats.p95,
             p99: codexLatestStats.p99,
-            eventCount: cxStats.samples?.length || 0
+            eventCount: cxStats.samples?.length || 0,
+            avgLatency: cxAvg
         },
         gecko: {
             loadTime: connectionMetrics.gecko.loadTime,
@@ -457,7 +459,8 @@ setInterval(() => {
             stdDev: lastIntervalStats.gecko.stdDev,     // Max Delta (for Chart)
             p95: gkStats.getStats().p95,
             p99: gkStats.getStats().p99,
-            eventCount: gkStats.samples?.length || 0
+            eventCount: gkStats.samples?.length || 0,
+            avgLatency: gkAvg
         }
     };
 
@@ -1166,6 +1169,8 @@ function processGeckoTrade(trade) {
     gkStats.add(latency);
     latestLatency.gecko = latency;
     addLatencySample('gecko', latency);
+    latencyStats.gecko.sum += latency;
+    latencyStats.gecko.count++;
     addLatencyDelta('gecko', latency);
 
     // Interval Push (Raw Jitter)
@@ -1339,6 +1344,8 @@ function processGoldrushUpdate(update) {
     intervalLatencies.goldrush.push(latency);
 
     addLatencySample('goldrush', latency);
+    latencyStats.goldrush.sum += latency;
+    latencyStats.goldrush.count++;
     addLatencyDelta('goldrush', latency);
     countUpdate('goldrush');
 }
