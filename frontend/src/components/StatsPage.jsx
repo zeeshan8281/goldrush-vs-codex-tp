@@ -98,11 +98,7 @@ const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '', for
 
         // Add 3 line series
 
-        seriesRefs.current.gecko = chart.addLineSeries({
-            color: COLORS.gecko,
-            lineWidth: 2,
-            title: 'Gecko'
-        });
+
 
         seriesRefs.current.goldrush = chart.addLineSeries({
             color: COLORS.goldrush,
@@ -286,9 +282,14 @@ const CandlesPerIntervalChart = ({ history, icon: Icon }) => {
     // Aggregate 5s snapshots into 1-minute bins
     // history contains ~60 items (last 5 mins at 5s intervals)
 
-    // Group by Minute Label (HH:MM)
+    // Group by 5-Minute Label (HH:MM)
     const groupedData = history?.reduce((acc, h) => {
         const time = new Date(h.time);
+        // Round to nearest 5 minutes
+        const minutes = Math.floor(time.getMinutes() / 5) * 5;
+        time.setMinutes(minutes);
+        time.setSeconds(0);
+
         const label = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 
         if (!acc[label]) {
@@ -304,9 +305,9 @@ const CandlesPerIntervalChart = ({ history, icon: Icon }) => {
 
     const chartData = Object.keys(groupedData).map(label => {
         const group = groupedData[label];
-        // Average Rate * 60 = Estimated Events per Minute
-        const grVal = Math.round((group.grRate / group.count) * 60);
-        const cxVal = Math.round((group.cxRate / group.count) * 60);
+        // Average Rate * 300 = Estimated Events per 5 Minutes
+        const grVal = Math.round((group.grRate / group.count) * 300);
+        const cxVal = Math.round((group.cxRate / group.count) * 300);
 
         return {
             time: label,

@@ -11,27 +11,23 @@ const RollingStats = require('./utils/stats');
 
 const grStats = new RollingStats();
 const cxStats = new RollingStats();
-const gkStats = new RollingStats(); // New Stats for Gecko
 
 // Globa Interval Buckets for Raw Jitter (Reset every 5s)
 let intervalLatencies = {
     goldrush: [],
-    codex: [],
-    gecko: []
+    codex: []
 };
 
 // Carry-Forward Stats (Prevent 0-flicker)
 let lastIntervalStats = {
     goldrush: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 },
-    codex: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 },
-    gecko: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 }
+    codex: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 }
 };
 
 // Track last value of previous interval for Delta calculation
 let lastIntervalEndVal = {
     goldrush: 0,
-    codex: 0,
-    gecko: 0
+    codex: 0
 };
 
 let codexLatestStats = { p50: 0, p95: 0, jitter: 0 };
@@ -79,15 +75,13 @@ let pairs = {
     [SYMBOL]: {
         price: 0,
         fastPrice: 0,
-        slowPrice: 0,
-        geckoPrice: 0
+        slowPrice: 0
     }
 };
 
 // Store OHLCV candle arrays for charts (independent)
 let goldrushCandles = [];
 let codexCandles = [];
-let geckoCandles = [];
 
 let clients = new Set();
 let isRunning = true;
@@ -126,10 +120,9 @@ app.post('/update-token', async (req, res) => {
         CODEX_NETWORK_ID = config.codexNetworkId;
 
         // Reset Global State
-        pairs = { [SYMBOL]: { price: 0, fastPrice: 0, slowPrice: 0, geckoPrice: 0 } };
+        pairs = { [SYMBOL]: { price: 0, fastPrice: 0, slowPrice: 0 } };
         goldrushCandles = [];
         codexCandles = [];
-        geckoCandles = [];
 
         performanceHistory = []; // Reset history on token switch
 
@@ -137,33 +130,29 @@ app.post('/update-token', async (req, res) => {
 
         // Reset Metrics & Stats
         metricsHistory = [];
-        throughputCounters = { goldrush: 0, codex: 0, gecko: 0 };
-        currentThroughput = { goldrush: 0, codex: 0, gecko: 0 };
-        throughputHistory = { goldrush: [], codex: [], gecko: [] };
-        avgCandlesPerSecond = { goldrush: 0, codex: 0, gecko: 0 };
+        throughputCounters = { goldrush: 0, codex: 0 };
+        currentThroughput = { goldrush: 0, codex: 0 };
+        throughputHistory = { goldrush: [], codex: [] };
+        avgCandlesPerSecond = { goldrush: 0, codex: 0 };
 
         latencyStats = {
             goldrush: { sum: 0, count: 0 },
-            codex: { sum: 0, count: 0 },
-            gecko: { sum: 0, count: 0 }
+            codex: { sum: 0, count: 0 }
         };
 
         latency300 = {
             goldrush: { samples: [], sum: 0 },
-            codex: { samples: [], sum: 0 },
-            gecko: { samples: [], sum: 0 }
+            codex: { samples: [], sum: 0 }
         };
 
         connectionMetrics = {
             goldrush: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null },
-            codex: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null },
-            gecko: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null }
+            codex: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null }
         };
 
         latencyDelta = {
             goldrush: { prevLatency: null, deltas: [], sum: 0 },
-            codex: { prevLatency: null, deltas: [], sum: 0 },
-            gecko: { prevLatency: null, deltas: [], sum: 0 }
+            codex: { prevLatency: null, deltas: [], sum: 0 }
         };
 
         // Update Providers
@@ -182,9 +171,6 @@ app.post('/update-token', async (req, res) => {
             // Start Codex (History + Subscription)
             await initCodexProvider();
         }
-        // 3. Gecko
-        // Restart Gecko
-        startGeckoStream();
     }
 
     res.json({ success: true, symbol: SYMBOL, chain: newChain });
@@ -220,38 +206,34 @@ app.post('/api/timeframe', (req, res) => {
 
 // --- THROUGHPUT TRACKING (Hz) ---
 // Count updates per second
-let throughputCounters = { goldrush: 0, codex: 0, gecko: 0 };
-let currentThroughput = { goldrush: 0, codex: 0, gecko: 0 };
-let throughputHistory = { goldrush: [], codex: [], gecko: [] };
-let avgCandlesPerSecond = { goldrush: 0, codex: 0, gecko: 0 };
+let throughputCounters = { goldrush: 0, codex: 0 };
+let currentThroughput = { goldrush: 0, codex: 0 };
+let throughputHistory = { goldrush: [], codex: [] };
+let avgCandlesPerSecond = { goldrush: 0, codex: 0 };
 
 let latencyStats = {
     goldrush: { sum: 0, count: 0 },
-    codex: { sum: 0, count: 0 },
-    gecko: { sum: 0, count: 0 }
+    codex: { sum: 0, count: 0 }
 };
 
 // Rolling latency over last 300 candles per provider
 let latency300 = {
     goldrush: { samples: [], sum: 0 },
-    codex: { samples: [], sum: 0 },
-    gecko: { samples: [], sum: 0 }
+    codex: { samples: [], sum: 0 }
 };
 
 // --- METRICS HISTORY FOR COMPARISON CHARTS ---
 // Track connection/load time for each provider
 let connectionMetrics = {
     goldrush: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null },
-    codex: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null },
-    gecko: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null }
+    codex: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null }
 };
 
 // --- LATENCY DELTA TRACKING (for stability score) ---
 // Track previous latency and deltas for each provider
 let latencyDelta = {
     goldrush: { prevLatency: null, deltas: [], sum: 0 },
-    codex: { prevLatency: null, deltas: [], sum: 0 },
-    gecko: { prevLatency: null, deltas: [], sum: 0 }
+    codex: { prevLatency: null, deltas: [], sum: 0 }
 };
 
 const MAX_ACCEPTABLE_DELTA = 50000; // 50 seconds max delta for 0% stability
@@ -335,7 +317,7 @@ setInterval(() => {
     currentThroughput = { ...throughputCounters };
 
     // Update rolling history (last 60 seconds)
-    ['goldrush', 'codex', 'gecko'].forEach(p => {
+    ['goldrush', 'codex'].forEach(p => {
         throughputHistory[p].push(currentThroughput[p]);
         if (throughputHistory[p].length > 60) throughputHistory[p].shift();
 
@@ -346,7 +328,7 @@ setInterval(() => {
             : 0;
     });
 
-    throughputCounters = { goldrush: 0, codex: 0, gecko: 0 };
+    throughputCounters = { goldrush: 0, codex: 0 };
 
     if (isRunning) {
         broadcast({
@@ -360,7 +342,7 @@ setInterval(() => {
 }, 1000);
 
 // Store latest averages for the API
-let latestLatency = { goldrush: 0, codex: 0, gecko: 0 };
+let latestLatency = { goldrush: 0, codex: 0 };
 
 // Snapshot History every 5 seconds (Fast for testing, normally 1m or 10m)
 setInterval(() => {
@@ -368,7 +350,7 @@ setInterval(() => {
 
     const getAvg = (provider) => {
         const s = latencyStats[provider];
-        if (s.count === 0) return 0;
+        if (s.count === 0) return latestLatency[provider] || 0; // Carry forward last known value
         const avg = Math.round(s.sum / s.count);
         // Reset
         s.sum = 0; s.count = 0;
@@ -378,16 +360,14 @@ setInterval(() => {
     // Calculate averages
     const grAvg = getAvg('goldrush');
     const cxAvg = getAvg('codex');
-    const gkAvg = getAvg('gecko');
 
     // Update global state for /stats
-    latestLatency = { goldrush: grAvg, codex: cxAvg, gecko: gkAvg };
+    latestLatency = { goldrush: grAvg, codex: cxAvg };
 
     const snapshot = {
         time: Date.now(),
         goldrush: { avgLatency: grAvg },
-        codex: { avgLatency: cxAvg },
-        gecko: { avgLatency: gkAvg }
+        codex: { avgLatency: cxAvg }
     };
 
     performanceHistory.push(snapshot);
@@ -425,10 +405,6 @@ setInterval(() => {
         lastIntervalStats.codex.stdDev = calculateMaxIntervalDelta(intervalLatencies.codex, lastIntervalEndVal.codex);
         lastIntervalEndVal.codex = intervalLatencies.codex[intervalLatencies.codex.length - 1];
     }
-    if (intervalLatencies.gecko.length > 0) {
-        lastIntervalStats.gecko.stdDev = calculateMaxIntervalDelta(intervalLatencies.gecko, lastIntervalEndVal.gecko);
-        lastIntervalEndVal.gecko = intervalLatencies.gecko[intervalLatencies.gecko.length - 1];
-    }
 
     const metricsSnapshot = {
         time: Date.now(),
@@ -451,26 +427,15 @@ setInterval(() => {
             p99: codexLatestStats.p99,
             eventCount: cxStats.samples?.length || 0,
             avgLatency: cxAvg
-        },
-        gecko: {
-            loadTime: connectionMetrics.gecko.loadTime,
-            candlesPerSec: avgCandlesPerSecond.gecko,
-            jitter: gkStats.getStats().jitter,          // Rolling Jitter (for Table)
-            stdDev: lastIntervalStats.gecko.stdDev,     // Max Delta (for Chart)
-            p95: gkStats.getStats().p95,
-            p99: gkStats.getStats().p99,
-            eventCount: gkStats.samples?.length || 0,
-            avgLatency: gkAvg
         }
     };
 
     // Reset Interval Buckets for next snapshot
     intervalLatencies.goldrush = [];
     intervalLatencies.codex = [];
-    intervalLatencies.gecko = [];
 
     metricsHistory.push(metricsSnapshot);
-    if (metricsHistory.length > 60) metricsHistory.shift(); // Keep last 5 min
+    if (metricsHistory.length > 720) metricsHistory.shift(); // Keep last 60 min (720 * 5s = 3600s = 1hr)
 }, 5000);
 
 // Helper to increment throughput
@@ -493,18 +458,15 @@ app.get('/stats', (req, res) => {
         throughput: currentThroughput,
         candlesPerMinute: {
             goldrush: currentThroughput.goldrush * 60,
-            codex: currentThroughput.codex * 60,
-            gecko: currentThroughput.gecko * 60
+            codex: currentThroughput.codex * 60
         },
         latencyRace: {
             goldrush: { avgLatency: latestLatency.goldrush },
-            codex: { avgLatency: latestLatency.codex },
-            gecko: { avgLatency: latestLatency.gecko }
+            codex: { avgLatency: latestLatency.codex }
         },
         avgLatency300: {
             goldrush: getAvgLatency300('goldrush'),
-            codex: getAvgLatency300('codex'),
-            gecko: getAvgLatency300('gecko')
+            codex: getAvgLatency300('codex')
         }
     });
 });
@@ -525,12 +487,6 @@ app.get('/metrics-history', (req, res) => {
                 candlesPerSec: avgCandlesPerSecond.codex,
                 latencyVariance: getAvgDelta('codex'),
                 latency300: getAvgLatency300('codex')
-            },
-            gecko: {
-                loadTime: connectionMetrics.gecko.loadTime,
-                candlesPerSec: avgCandlesPerSecond.gecko,
-                latencyVariance: getAvgDelta('gecko'),
-                latency300: getAvgLatency300('gecko')
             }
         }
     });
@@ -578,8 +534,7 @@ async function processGoldrushCandles(candles) {
                 pairs[SYMBOL] = {
                     price: pairs[oldSymbol]?.price || 0,
                     fastPrice: pairs[oldSymbol]?.fastPrice || 0,
-                    slowPrice: pairs[oldSymbol]?.slowPrice || 0,
-                    geckoPrice: pairs[oldSymbol]?.geckoPrice || 0
+                    slowPrice: pairs[oldSymbol]?.slowPrice || 0
                 };
             }
 
@@ -656,17 +611,15 @@ async function processGoldrushCandles(candles) {
 
 // --- CODEX WEBSOCKET SUBSCRIPTION ---
 let codexCleanup = null;
-let geckoCleanup = null;
-let geckoTradeCleanup = null;
 
 
 async function initCodexProvider() {
+    // Start Live Subscription via SDK IMPACT: Run in parallel with history fetch
+    startCodexSubscription();
+
     // Fetch History (Backfill) via HTTP - purely for chart data
     console.log("🐢 Fetching Codex History...");
     await fetchCodexPrice();
-
-    // Start Live Subscription via SDK
-    startCodexSubscription();
 }
 
 function startCodexSubscription() {
@@ -688,7 +641,8 @@ function startCodexSubscription() {
         },
         on: {
             connected: () => {
-                console.log('✅ Connected to Codex GraphQL Stream!');
+                const connectTime = Date.now() - connectionMetrics.codex.loadStart;
+                console.log(`✅ Connected to Codex GraphQL Stream! (Handshake: ${connectTime}ms)`);
             },
             error: (err) => {
                 console.error('❌ Codex WS Error:', err);
@@ -738,7 +692,7 @@ function startCodexSubscription() {
                     // Track first data load time (WS Connection -> First Packet)
                     if (connectionMetrics.codex.loadTime === 0) {
                         connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
-                        console.log(`✅ Codex Time to First Data (WS): ${connectionMetrics.codex.loadTime}ms`);
+                        console.log(`✅ Codex Time to First Data (WS-Events Stopwatch): ${connectionMetrics.codex.loadTime}ms`);
                     }
                     processCodexEvents(events);
                 }
@@ -764,7 +718,10 @@ function startCodexSubscription() {
             Authorization: process.env.CODEX_API_KEY
         },
         on: {
-            connected: () => console.log('✅ Connected to Codex onBarsUpdated Stream!'),
+            connected: () => {
+                const connectTime = Date.now() - connectionMetrics.codex.loadStart;
+                console.log(`✅ Connected to Codex onBarsUpdated Stream! (Handshake: ${connectTime}ms)`);
+            },
             error: (err) => console.error('❌ Codex Bars WS Error:', err)
         }
     });
@@ -772,7 +729,10 @@ function startCodexSubscription() {
     const pairId = `${PAIR_ADDRESS}:${CODEX_NETWORK_ID}`;
     const barsQuery = `
         subscription($pairId: String!) {
-            onBarsUpdated(pairId: $pairId) {
+            onBarsUpdated(
+                pairId: $pairId
+                quoteToken: token0
+            ) {
                 pairId
                 timestamp
                 aggregates {
@@ -784,6 +744,7 @@ function startCodexSubscription() {
                             l
                             c
                             volume
+                            t
                         }
                     }
                 }
@@ -801,7 +762,7 @@ function startCodexSubscription() {
                     // Track TTFD if not already rejected
                     if (connectionMetrics.codex.loadTime === 0) {
                         connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
-                        console.log(`✅ Codex Time to First Data (WS-Bars): ${connectionMetrics.codex.loadTime}ms`);
+                        console.log(`✅ Codex Time to First Data (WS-Bars Stopwatch): ${connectionMetrics.codex.loadTime}ms`);
                     }
                     countUpdate('codex');
 
@@ -1248,11 +1209,7 @@ function startStream() {
             console.log('⚡ GoldRush OHLCV Received:', JSON.stringify(result).substring(0, 200));
             const candles = result?.data?.ohlcvCandlesForPair;
             if (candles && candles.length > 0) {
-                // Track first data load time (time from connection start to first packet)
-                if (connectionMetrics.goldrush.loadTime === 0) {
-                    connectionMetrics.goldrush.loadTime = Date.now() - connectionMetrics.goldrush.loadStart;
-                    console.log(`✅ GoldRush Time to First Data: ${connectionMetrics.goldrush.loadTime}ms`);
-                }
+                // TTFD now calculated from updatePairs (raw latency stream)
                 processGoldrushOHLCV(candles);
             }
         },
@@ -1305,6 +1262,11 @@ function startStream() {
 
             const update = result?.data?.updatePairs;
             if (update && update.timestamp) {
+                // Track TTFD from first updatePairs packet (more accurate freshness)
+                if (connectionMetrics.goldrush.loadTime === 0) {
+                    connectionMetrics.goldrush.loadTime = Date.now() - connectionMetrics.goldrush.loadStart;
+                    console.log(`✅ GoldRush Time to First Data (updatePairs Stopwatch): ${connectionMetrics.goldrush.loadTime}ms`);
+                }
                 processGoldrushUpdate(update);
             }
         },
@@ -1414,7 +1376,6 @@ server.listen(PORT, async () => {
         streamsStartTime = Date.now(); // Set global start time for all streams
         startStream(); // GoldRush
         await initCodexProvider(); // Codex
-        startGeckoStream(); // Gecko
     } catch (err) {
         console.error("❌ Stats Server Init Error:", err);
     }
@@ -1459,18 +1420,7 @@ wss.on('connection', (ws) => {
     }
 
 
-    if (geckoCandles.length > 0) {
-        ws.send(JSON.stringify({
-            type: 'GECKO_TICK',
-            data: {
-                pair: SYMBOL,
-                price: pairs[SYMBOL].geckoPrice,
-                timestamp: Date.now(),
-                latency: 0,
-                candles: geckoCandles
-            }
-        }));
-    }
+
 
 
 
