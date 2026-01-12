@@ -1,167 +1,111 @@
-# GoldRush vs Codex Trading Paper Simulator
+# ⚡️ GoldRush vs Codex: Real-Time Data Benchmark
 
-A real-time trading paper simulator that compares **GoldRush Streaming API** against **Codex Polling API** for the BONK token on Solana.
+A high-performance benchmark tool comparing **GoldRush Streaming API** against **Codex GraphQL Subscriptions** for live trading data. This project measures latency, throughput, and "Time to First Data" (TTFD) to determine the fastest data source for algorithmic trading on **Base** and **Solana**.
 
-![Dashboard Preview](https://img.shields.io/badge/Status-Live-green) ![Node.js](https://img.shields.io/badge/Node.js-18+-blue) ![React](https://img.shields.io/badge/React-19-blue)
+![Status](https://img.shields.io/badge/Status-Stable-green) ![Stack](https://img.shields.io/badge/Stack-Node.js_Wait-blue) ![License](https://img.shields.io/badge/License-MIT-purple)
 
-## 🎯 What This Does
+## 🎯 Objective
+To provide an **"apples-to-apples" comparison** of live market data streams by running identical listeners on both providers and clocking their performance in real-time.
 
-This proof-of-concept runs **identical trading algorithms** on two different data sources to compare: GoldRush and Codex
-
-Both APIs feed into the **same momentum-based paper trading strategy**, allowing you to compare PnL outcomes based on data delivery speed and reliability.
+**Key Metrics Tracked:**
+*   **Time to First Data (TTFD):** How fast does the stream deliver the first packet after connection?
+*   **Average Latency:** The time difference between the *Block Timestamp* and *Packet Receive Time*.
+*   **Events per Interval:** Density of data (candles/trades) received per 5-minute block.
+*   **Jitter (Stability):** Variance in latency (P95 vs P50).
 
 ## 📊 Features
-
-- **Side-by-side candlestick charts** (lightweight-charts)
-- **Independent paper trading** for each API
-- **Real-time execution logs**
-- **Cumulative PnL tracking**
-- **Terminal log boxes** showing live data flow
+*   **Dual-Stream Architecture:** Simultaneous WebSocket connections to GoldRush (`updatePairs`) and Codex (`onBarsUpdated`, `onEventsCreated`).
+*   **Live Latency Charts:** 60-minute history of average latency and event density.
+*   **Heads-Up Display (HUD):** Real-time stats for P50, P95, and Jitter.
+*   **Multi-Chain Support:** Dynamically switches between **Base** (Virtual Protocol) and **Solana** (Bonk) based on configuration.
+*   **Zero-Lag Visualization:** filtering logic prevents "flatlines" when streams are idle.
 
 ## 🏗️ Architecture
 
+```mermaid
+graph TD
+    A[GoldRush API] -->|WebSocket (updatePairs)| C(Node.js Backend)
+    B[Codex API] -->|GraphQL Sub (Events)| C
+    C -->|Aggregated Metrics| D[React Frontend]
+    C -->|Trade Simulation| D
+    D -->|Charts & Logs| E(User Interface)
 ```
-┌─────────────────┐     ┌─────────────────┐
-│  GoldRush SDK   │     │   Codex API     │
-│   (WebSocket)   │     │   (Polling)     │
-└────────┬────────┘     └────────┬────────┘
-         │                       │
-         ▼                       ▼
-┌────────────────────────────────────────┐
-│           Node.js Backend              │
-│  - Independent trading logic           │
-│  - Candle accumulation                 │
-│  - WebSocket broadcast                 │
-└───────────────────┬────────────────────┘
-                    │
-                    ▼
-┌────────────────────────────────────────┐
-│         React Frontend (Vite)          │
-│  - Charts  │  Trades  │  Terminal      │
-└────────────────────────────────────────┘
-```
+
+**Backend (`/backend`)**:
+*   Node.js + `ws` + `graphql-ws`
+*   Calculates rolling stats (P50, P95) and throughput (Hz).
+*   Manages "Stopwatch" logic for TTFD measurement.
+
+**Frontend (`/frontend`)**:
+*   React + Vite
+*   `Recharts` for Metric History.
+*   `Lightweight Charts` for Price Candles.
+*   Real-time "Terminal" logs for debugging.
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 18+
-- GoldRush API Key ([Get one here](https://goldrush.dev))
-- Codex API Key ([Get one here](https://codex.io))
+*   Node.js 18+
+*   **GoldRush API Key** ([Sign up](https://goldrush.dev))
+*   **Codex API Key** ([Sign up](https://codex.io))
 
-### 1. Clone & Install
+### 1. Installation
 
 ```bash
 git clone https://github.com/zeeshan8281/goldrush-vs-codex-tp.git
 cd goldrush-vs-codex-tp
 
-# Backend
-cd backend
-npm install
+# Install Backend
+cd backend && npm install
 
-# Frontend
-cd ../frontend
-npm install
+# Install Frontend
+cd ../frontend && npm install
 ```
 
-### 2. Configure Environment
+### 2. Configuration (`backend/.env`)
 
-Create `backend/.env`:
+Create a `.env` file in the `backend` directory:
+
 ```env
-COVALENT_API_KEY=your_goldrush_api_key
-CODEX_API_KEY=your_codex_api_key
+COVALENT_API_KEY=your_goldrush_key
+CODEX_API_KEY=your_codex_key
+
+# Default Token (Virtual Protocol on Base)
+CURRENT_CHAIN=BASE_MAINNET
+PAIR_ADDRESS=0x9c087Eb773291e50CF6c6a90ef0F4500e349B903
+CODEX_NETWORK_ID=8453
 ```
 
-### 3. Run Locally
+### 3. Running benchmark
 
+**Terminal 1 (Backend):**
 ```bash
-# Terminal 1 - Backend
-cd backend && node index.js
-
-# Terminal 2 - Frontend
-cd frontend && npm run dev
+cd backend
+node index.js
 ```
 
-Open http://localhost:5173
-
-## 📈 Trading Algorithm
-
-Both APIs use identical **momentum-based strategy**:
-
-```javascript
-THRESHOLD = 0.01%  // Price change to trigger
-
-// Entry
-if (priceChange > +0.01%) → Open LONG
-if (priceChange < -0.01%) → Open SHORT
-
-// Exit
-if (opposite signal OR held > 10 seconds) → Close position
-
-// PnL
-LONG:  (exitPrice - entryPrice) × 10000
-SHORT: (entryPrice - exitPrice) × 10000
+**Terminal 2 (Frontend):**
+```bash
+cd frontend
+npm run dev
 ```
 
-## 🌐 Deployment
+Open **http://localhost:5173** to view the dashboard.
 
-### Backend (Render)
-1. Create Web Service → Root Directory: `backend`
-2. Build: `npm install` | Start: `npm start`
-3. Add env vars: `COVALENT_API_KEY`, `CODEX_API_KEY`
+## 📈 Performance Findings (Current)
 
-### Frontend (Vercel)
-1. Import repo → Root Directory: `frontend`
-2. Framework: Vite
-3. Add env var: `VITE_WS_URL=wss://your-backend.onrender.com`
+| Metric | GoldRush (Streaming) | Codex (GraphQL) |
+| :--- | :--- | :--- |
+| **TTFD** | **~200ms - 2s** (Snapshot) | ~17s - 60s (Waits for Event) |
+| **Latency** | **< 2s** | ~2s - 10s |
+| **Type** | Push (WebSocket) | Push (GraphQL Sub) |
 
-## 📁 Project Structure
-
-```
-├── backend/
-│   ├── index.js          # Main server, trading logic
-│   ├── package.json
-│   └── .env              # API keys (not committed)
-│
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx       # WebSocket client, state
-│   │   └── components/
-│   │       ├── Dashboard.jsx    # Main layout
-│   │       ├── Chart.jsx        # Candlestick chart
-│   │       ├── TradeList.jsx    # Execution table
-│   │       └── TerminalLog.jsx  # Live data log
-│   └── package.json
-```
-
-## 🔧 Configuration
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `COVALENT_API_KEY` | GoldRush API key | Required |
-| `CODEX_API_KEY` | Codex API key | Required |
-| `PORT` | Backend port | 3002 |
-| `VITE_WS_URL` | WebSocket URL | ws://localhost:3002 |
-
-## 📊 Token Tracked
-
-| Property | Value |
-|----------|-------|
-| Symbol | BONK |
-| Address | `DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263` |
-| Chain | Solana Mainnet |
-| Interval | 1 Minute |
+*Note: GoldRush typically wins on TTFD because it sends an initial state snapshot immediately upon connection, whereas Codex often waits for the next market event.*
 
 ## 🤝 Contributing
-
-1. Fork the repo
-2. Create feature branch
-3. Commit changes
-4. Push and open PR
+PRs are welcome! Please ensure you:
+1.  Run `node index.js` to verify backend streams.
+2.  Check the "Stats" page for any rendering errors.
 
 ## 📝 License
-
-MIT
-
----
-
-Built with ❤️ using [GoldRush SDK](https://goldrush.dev) and [Codex](https://codex.io)
+MIT License. Built for the GoldRush community.
