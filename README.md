@@ -92,16 +92,6 @@ npm run dev
 
 Open **http://localhost:5173** to view the dashboard.
 
-## 📈 Performance Findings (Current)
-
-| Metric | GoldRush (Streaming) | Codex (GraphQL) |
-| :--- | :--- | :--- |
-| **TTFD** | **~200ms - 2s** (Snapshot) | ~17s - 60s (Waits for Event) |
-| **Latency** | **< 2s** | ~2s - 10s |
-| **Type** | Push (WebSocket) | Push (GraphQL Sub) |
-
-*Note: GoldRush typically wins on TTFD because it sends an initial state snapshot immediately upon connection, whereas Codex often waits for the next market event.*
-
 ## 🤝 Contributing
 PRs are welcome! Please ensure you:
 1.  Run `node index.js` to verify backend streams.
