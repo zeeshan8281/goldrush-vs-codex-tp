@@ -66,6 +66,62 @@ const StatCard = ({ title, metricKey, data, icon: Icon, unit = '', formula = '' 
     );
 };
 
+// TTFD Card with separate metrics per provider (matching mockup)
+const TTFDCard = ({ data, icon: Icon }) => {
+    const formatMs = (ms) => {
+        if (!ms || ms <= 0) return '—';
+        return `${Math.round(ms).toLocaleString()} ms`;
+    };
+
+    return (
+        <div className="stat-card ttfd-card">
+            <div className="stat-card-header">
+                {Icon && <Icon size={18} />}
+                <span className="chart-title">Time to First Data</span>
+                <div className="info-tooltip-wrapper">
+                    <Info size={14} className="info-icon" />
+                    <div className="info-tooltip">
+                        Ring Buffer: WSS established → first OHLCV data<br />
+                        Live Data: Wall clock → first tick timestamp
+                    </div>
+                </div>
+            </div>
+            <div className="ttfd-columns">
+                {/* GoldRush Column */}
+                <div className="ttfd-column goldrush">
+                    <div className="ttfd-provider-header" style={{ color: COLORS.goldrush }}>GoldRush</div>
+                    <div className="ttfd-metrics">
+                        <div className="ttfd-metric">
+                            <span className="ttfd-label">Ring Buffer:</span>
+                            <span className="ttfd-value" style={{ color: COLORS.goldrush }}>
+                                {formatMs(data?.goldrush?.ringBufferTTFD)}
+                            </span>
+                        </div>
+                        <div className="ttfd-metric">
+                            <span className="ttfd-label">Live Data:</span>
+                            <span className="ttfd-value" style={{ color: COLORS.goldrush }}>
+                                {formatMs(data?.goldrush?.liveDataTTFD)}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                {/* Codex Column */}
+                <div className="ttfd-column codex">
+                    <div className="ttfd-provider-header" style={{ color: COLORS.codex }}>Codex</div>
+                    <div className="ttfd-metrics">
+                        <div className="ttfd-metric">
+                            <span className="ttfd-label">Live Data:</span>
+                            <span className="ttfd-value" style={{ color: COLORS.codex }}>
+                                {formatMs(data?.codex?.liveDataTTFD)}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '', formula = '' }) => {
     const containerRef = useRef(null);
     const chartRef = useRef(null);
@@ -605,13 +661,9 @@ function StatsPage({ onBack }) {
 
             {/* 4 Comparison Charts in 2x2 Grid */}
             <div className="comparison-grid">
-                <StatCard
-                    title="Time to First Data - OHLCV Pairs"
-                    metricKey="loadTime"
+                <TTFDCard
                     data={metricsHistory.length > 0 ? metricsHistory[metricsHistory.length - 1] : null}
                     icon={Timer}
-                    unit="ms"
-                    formula="Time until first OHLCV candle received after connection (1min interval, 60min timeframe)."
                 />
                 <CandlesPerIntervalChart
                     history={metricsHistory}
@@ -763,6 +815,60 @@ function StatsPage({ onBack }) {
                     border: 1px solid #222;
                     border-radius: 12px;
                     padding: 16px;
+                }
+                
+                /* TTFD Card - Two Column Layout */
+                .ttfd-card .ttfd-columns {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 16px;
+                }
+                
+                .ttfd-column {
+                    background: #0a0a0a;
+                    border-radius: 12px;
+                    padding: 16px;
+                    border: 1px solid #222;
+                }
+                
+                .ttfd-column.goldrush {
+                    border-left: 3px solid #ef4444;
+                }
+                
+                .ttfd-column.codex {
+                    border-left: 3px solid #3b82f6;
+                }
+                
+                .ttfd-provider-header {
+                    font-size: 1.1rem;
+                    font-weight: 700;
+                    margin-bottom: 16px;
+                    padding-bottom: 8px;
+                    border-bottom: 1px solid #222;
+                }
+                
+                .ttfd-metrics {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                }
+                
+                .ttfd-metric {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                }
+                
+                .ttfd-label {
+                    color: #888;
+                    font-size: 0.85rem;
+                    font-weight: 500;
+                }
+                
+                .ttfd-value {
+                    font-size: 1.4rem;
+                    font-weight: 700;
+                    font-family: 'Monaco', monospace;
                 }
                 
                 .stat-card-header {

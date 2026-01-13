@@ -231,9 +231,25 @@ let latency300 = {
 
 // --- METRICS HISTORY FOR COMPARISON CHARTS ---
 // Track connection/load time for each provider
+// GoldRush: ringBufferTTFD (last candle of initial buffer) + liveDataTTFD (first live event after buffer)
+// Codex: liveDataTTFD (onEventsCreated)
 let connectionMetrics = {
-    goldrush: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null },
-    codex: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null }
+    goldrush: {
+        ringBufferStart: 0,       // When OHLCV stream connects
+        ringBufferTTFD: 0,        // Time until ALL initial buffer candles arrive
+        ringBufferReceived: false,// Flag: has initial buffer been fully received?
+        liveDataTTFD: 0,          // Time to first LIVE candle (after buffer)
+        connects: 0,
+        errors: 0,
+        lastError: null
+    },
+    codex: {
+        liveDataStart: 0,     // When onEventsCreated stream connects
+        liveDataTTFD: 0,      // Time to first onEventsCreated data (real-time events)
+        connects: 0,
+        errors: 0,
+        lastError: null
+    }
 };
 
 // --- LATENCY DELTA TRACKING (for stability score) ---
@@ -416,7 +432,8 @@ setInterval(() => {
     const metricsSnapshot = {
         time: Date.now(),
         goldrush: {
-            loadTime: connectionMetrics.goldrush.loadTime,
+            ringBufferTTFD: connectionMetrics.goldrush.ringBufferTTFD, // OHLCV stream
+            liveDataTTFD: connectionMetrics.goldrush.liveDataTTFD,     // updatePairs stream
             candlesPerSec: avgCandlesPerSecond.goldrush,
             jitter: grCurrentStats.jitter,              // Rolling Jitter (for Table)
             stdDev: lastIntervalStats.goldrush.stdDev,  // Max Delta (for Chart)
@@ -426,7 +443,7 @@ setInterval(() => {
             avgLatency: grAvg
         },
         codex: {
-            loadTime: connectionMetrics.codex.loadTime,
+            liveDataTTFD: connectionMetrics.codex.liveDataTTFD,     // onEventsCreated (real-time)
             candlesPerSec: avgCandlesPerSecond.codex,
             jitter: codexLatestStats.jitter,            // Rolling Jitter (for Table)
             stdDev: lastIntervalStats.codex.stdDev,     // Max Delta (for Chart)
@@ -636,7 +653,7 @@ function startCodexSubscription() {
     }
 
     console.log("🐢 Connecting to Codex GraphQL Stream (Events)...");
-    connectionMetrics.codex.loadStart = Date.now(); // TTFD timer starts here
+    connectionMetrics.codex.liveDataStart = Date.now(); // TTFD timer starts here
     connectionMetrics.codex.connects++;
 
     // Raw graphql-ws connection (NO SDK)
@@ -648,7 +665,7 @@ function startCodexSubscription() {
         },
         on: {
             connected: () => {
-                const connectTime = Date.now() - connectionMetrics.codex.loadStart;
+                const connectTime = Date.now() - connectionMetrics.codex.liveDataStart;
                 console.log(`✅ Connected to Codex GraphQL Stream! (Handshake: ${connectTime}ms)`);
             },
             error: (err) => {
@@ -697,9 +714,9 @@ function startCodexSubscription() {
                 const events = result?.data?.onEventsCreated?.events;
                 if (events && events.length > 0) {
                     // Track first data load time (WS Connection -> First Packet)
-                    if (connectionMetrics.codex.loadTime === 0) {
-                        connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
-                        console.log(`✅ Codex Time to First Data (WS-Events Stopwatch): ${connectionMetrics.codex.loadTime}ms`);
+                    if (connectionMetrics.codex.liveDataTTFD === 0) {
+                        connectionMetrics.codex.liveDataTTFD = Date.now() - connectionMetrics.codex.liveDataStart;
+                        console.log(`✅ Codex Live Data TTFD (WS-Events): ${connectionMetrics.codex.liveDataTTFD}ms`);
                     }
                     processCodexEvents(events);
                 }
@@ -725,10 +742,7 @@ function startCodexSubscription() {
             Authorization: process.env.CODEX_API_KEY
         },
         on: {
-            connected: () => {
-                const connectTime = Date.now() - connectionMetrics.codex.loadStart;
-                console.log(`✅ Connected to Codex onBarsUpdated Stream! (Handshake: ${connectTime}ms)`);
-            },
+            connected: () => console.log('✅ Connected to Codex onBarsUpdated Stream!'),
             error: (err) => console.error('❌ Codex Bars WS Error:', err)
         }
     });
@@ -766,11 +780,6 @@ function startCodexSubscription() {
                 const now = Date.now();
                 const bar = result?.data?.onBarsUpdated;
                 if (bar && bar.aggregates?.r1?.usd) {
-                    // Track TTFD if not already rejected
-                    if (connectionMetrics.codex.loadTime === 0) {
-                        connectionMetrics.codex.loadTime = Date.now() - connectionMetrics.codex.loadStart;
-                        console.log(`✅ Codex Time to First Data (WS-Bars Stopwatch): ${connectionMetrics.codex.loadTime}ms`);
-                    }
                     countUpdate('codex');
 
                     // Latency: now - bar timestamp (Unix seconds)
@@ -949,7 +958,7 @@ let goldrushCleanup = null;
 
 function startStream() {
     console.log(`🚀 Starting GoldRush OHLCV Pairs Stream on: ${CURRENT_CHAIN}`);
-    connectionMetrics.goldrush.loadStart = Date.now();
+    connectionMetrics.goldrush.ringBufferStart = Date.now(); // Start timer for Ring Buffer TTFD
 
     // Use graphql-ws for raw GraphQL subscription (NO SDK)
     const grWsClient = createClient({
@@ -1009,11 +1018,26 @@ function startStream() {
                 eventCounters.goldrushOHLCV++;
                 const c = candles[candles.length - 1];
                 const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
-                console.log(`\n[GOLDRUSH] OHLCV Event #${eventCounters.goldrushOHLCV}`);
+                console.log(`\n[GOLDRUSH] OHLCV Event #${eventCounters.goldrushOHLCV} (${candles.length} candles)`);
                 console.log(`  O:${c.open?.toFixed(4)} H:${c.high?.toFixed(4)} L:${c.low?.toFixed(4)} C:${c.close?.toFixed(4)} V:${c.volume?.toFixed(2)}`);
                 console.log(`  Timestamp: ${c.timestamp}`);
 
-                // TTFD now calculated from updatePairs (raw latency stream)
+                // Detect Ring Buffer vs Live Data based on message size
+                if (!connectionMetrics.goldrush.ringBufferReceived) {
+                    // First message(s) with many candles = Ring Buffer (historical data)
+                    if (candles.length > 1) {
+                        // Still receiving ring buffer
+                        connectionMetrics.goldrush.ringBufferTTFD = Date.now() - connectionMetrics.goldrush.ringBufferStart;
+                        console.log(`📊 GoldRush Ring Buffer: received ${candles.length} candles (TTFD: ${connectionMetrics.goldrush.ringBufferTTFD}ms)`);
+                    } else {
+                        // Single candle = first LIVE data after buffer
+                        connectionMetrics.goldrush.ringBufferReceived = true;
+                        connectionMetrics.goldrush.liveDataTTFD = Date.now() - connectionMetrics.goldrush.ringBufferStart;
+                        console.log(`✅ GoldRush Ring Buffer TTFD (complete): ${connectionMetrics.goldrush.ringBufferTTFD}ms`);
+                        console.log(`✅ GoldRush Live Data TTFD: ${connectionMetrics.goldrush.liveDataTTFD}ms`);
+                    }
+                }
+
                 processGoldrushOHLCV(candles);
             }
         },
@@ -1028,7 +1052,7 @@ function startStream() {
     // Cleanup logic for OHLCV client
     const disposeOHLCV = () => grWsClient.dispose();
 
-    // --- SEPARATE CLIENT: updatePairs for LATENCY METRICS ---
+    // --- SEPARATE CLIENT: updatePairs for LATENCY METRICS (not for TTFD) ---
     console.log('📊 Starting GoldRush updatePairs Stream...');
     const grUpdatePairsClient = createClient({
         url: 'wss://gr-staging-v2.streaming.covalenthq.com/graphql',
@@ -1082,11 +1106,6 @@ function startStream() {
                     }
                 });
 
-                // Track TTFD from first updatePairs packet (more accurate freshness)
-                if (connectionMetrics.goldrush.loadTime === 0) {
-                    connectionMetrics.goldrush.loadTime = Date.now() - connectionMetrics.goldrush.loadStart;
-                    console.log(`✅ GoldRush Time to First Data (updatePairs Stopwatch): ${connectionMetrics.goldrush.loadTime}ms`);
-                }
                 processGoldrushUpdate(update);
             }
         },
