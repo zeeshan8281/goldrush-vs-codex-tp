@@ -705,12 +705,6 @@ function StatsPage({ onBack }) {
                             {logs.goldrush.map(log => (
                                 <div key={log.id} className="log-entry goldrush">
                                     <span className="log-event">#{log.eventNum} {log.eventType}</span>
-                                    {log.eventType === 'OHLCV' && (
-                                        <span className="log-details">O:{log.o} H:{log.h} L:{log.l} C:{log.c} V:{log.v}</span>
-                                    )}
-                                    {log.eventType === 'updatePairs' && (
-                                        <span className="log-details">Price: ${log.price}</span>
-                                    )}
                                     <span className="log-time">{new Date(log.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                                 </div>
                             ))}
@@ -723,8 +717,6 @@ function StatsPage({ onBack }) {
                             {logs.codex.map(log => (
                                 <div key={log.id} className="log-entry codex">
                                     <span className="log-event">#{log.eventNum} {log.eventType}</span>
-                                    <span className="log-details">O:{log.o} H:{log.h} L:{log.l} C:{log.c}</span>
-                                    <span className="log-latency">Lat: {log.latency}ms</span>
                                     <span className="log-time">{new Date(log.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                                 </div>
                             ))}

@@ -716,7 +716,8 @@ function startCodexSubscription() {
                     // Track first data load time (WS Connection -> First Packet)
                     if (connectionMetrics.codex.liveDataTTFD === 0) {
                         connectionMetrics.codex.liveDataTTFD = Date.now() - connectionMetrics.codex.liveDataStart;
-                        console.log(`✅ Codex Live Data TTFD (WS-Events): ${connectionMetrics.codex.liveDataTTFD}ms`);
+                        const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+                        console.log(`[${timeStr}] [CODEX] LIVE DATA    | First event | TTFD: ${connectionMetrics.codex.liveDataTTFD}ms`);
                     }
                     processCodexEvents(events);
                 }
@@ -1028,13 +1029,13 @@ function startStream() {
                     if (candles.length > 1) {
                         // Still receiving ring buffer
                         connectionMetrics.goldrush.ringBufferTTFD = Date.now() - connectionMetrics.goldrush.ringBufferStart;
-                        console.log(`📊 GoldRush Ring Buffer: received ${candles.length} candles (TTFD: ${connectionMetrics.goldrush.ringBufferTTFD}ms)`);
+                        console.log(`[${timeStr}] [GOLDRUSH] RING BUFFER  | Received ${candles.length} candles | TTFD: ${connectionMetrics.goldrush.ringBufferTTFD}ms`);
                     } else {
                         // Single candle = first LIVE data after buffer
                         connectionMetrics.goldrush.ringBufferReceived = true;
                         connectionMetrics.goldrush.liveDataTTFD = Date.now() - connectionMetrics.goldrush.ringBufferStart;
-                        console.log(`✅ GoldRush Ring Buffer TTFD (complete): ${connectionMetrics.goldrush.ringBufferTTFD}ms`);
-                        console.log(`✅ GoldRush Live Data TTFD: ${connectionMetrics.goldrush.liveDataTTFD}ms`);
+                        console.log(`[${timeStr}] [GOLDRUSH] RING BUFFER  | Complete | TTFD: ${connectionMetrics.goldrush.ringBufferTTFD}ms`);
+                        console.log(`[${timeStr}] [GOLDRUSH] LIVE DATA    | First candle | TTFD: ${connectionMetrics.goldrush.liveDataTTFD}ms`);
                     }
                 }
 
