@@ -711,8 +711,11 @@ function StatsPage({ onBack }) {
                         <div className="log-column-header goldrush">GoldRush ({logs.goldrush.length})</div>
                         <div className="log-content" ref={grLogRef}>
                             {logs.goldrush.map((log, i) => (
-                                <div key={log.id || `gr-${i}`} className="log-entry goldrush">
-                                    <span className="log-event">#{log.eventNum} {log.eventType}</span>
+                                <div key={log.id || `gr-${i}`} className={`log-entry goldrush ${log.eventType === 'RESTART' ? 'system-log' : ''}`}>
+                                    <span className="log-event">
+                                        #{log.eventNum} {log.eventType}
+                                        {log.eventType === 'RESTART' && <span className="log-details"> {log.details}</span>}
+                                    </span>
                                     <span className="log-time">{new Date(log.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                                 </div>
                             ))}
@@ -723,8 +726,11 @@ function StatsPage({ onBack }) {
                         <div className="log-column-header codex">Codex ({logs.codex.length})</div>
                         <div className="log-content" ref={cxLogRef}>
                             {logs.codex.map((log, i) => (
-                                <div key={log.id || `cx-${i}`} className="log-entry codex">
-                                    <span className="log-event">#{log.eventNum} {log.eventType}</span>
+                                <div key={log.id || `cx-${i}`} className={`log-entry codex ${log.eventType === 'RESTART' ? 'system-log' : ''}`}>
+                                    <span className="log-event">
+                                        #{log.eventNum} {log.eventType}
+                                        {log.eventType === 'RESTART' && <span className="log-details"> {log.details}</span>}
+                                    </span>
                                     <span className="log-time">{new Date(log.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                                 </div>
                             ))}
@@ -1192,6 +1198,20 @@ function StatsPage({ onBack }) {
                     gap: 8px;
                     padding: 4px 0;
                     border-bottom: 1px solid #222;
+                }
+
+                .log-entry.system-log {
+                    background: rgba(234, 179, 8, 0.1);
+                    border-left: 3px solid #eab308;
+                    padding-left: 8px;
+                    margin: 4px 0;
+                    width: 100%;
+                }
+
+                .log-details {
+                    color: #eab308;
+                    font-weight: 600;
+                    margin-left: 4px;
                 }
                 
                 .log-entry.goldrush .log-event {

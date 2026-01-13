@@ -208,6 +208,20 @@ app.post('/update-token', async (req, res) => {
         streamsStartTime = Date.now();
         console.log("⚠️ FULL BACKEND STATE RESET TRIGGERED ⚠️");
 
+        // Broadcast System Restart Message to UI Logs
+        const restartTime = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const restartMsg = {
+            id: `restart-${Date.now()}`,
+            eventNum: 'SYS',
+            eventType: 'RESTART',
+            time: restartTime,
+            timestamp: Date.now(),
+            details: `🔄 Switching to ${SYMBOL} on ${newChain}`
+        };
+
+        broadcast({ type: 'LOG_EVENT', provider: 'goldrush', data: restartMsg });
+        broadcast({ type: 'LOG_EVENT', provider: 'codex', data: { ...restartMsg, timestamp: restartMsg.timestamp / 1000 } });
+
         // Update Providers
         // 1. GoldRush
         // We aren't using the external provider module instances in index.js yet, 
