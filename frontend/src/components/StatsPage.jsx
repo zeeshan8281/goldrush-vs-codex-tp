@@ -659,7 +659,7 @@ function StatsPage({ onBack }) {
                                     {log.eventType === 'updatePairs' && (
                                         <span className="log-details">Price: ${log.price}</span>
                                     )}
-                                    <span className="log-time">{log.timestamp}</span>
+                                    <span className="log-time">{new Date(log.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                                 </div>
                             ))}
                             {logs.goldrush.length === 0 && <div className="log-empty">Waiting for events...</div>}
