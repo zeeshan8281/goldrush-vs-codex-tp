@@ -599,14 +599,22 @@ function StatsPage({ onBack }) {
         const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:3002`;
         const ws = new WebSocket(WS_URL);
 
+        ws.onopen = () => {
+            // console.log("✅ StatsPage WS Connected");
+        };
+
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                if (data.type === 'LOG_EVENT' && !isPausedRef.current) {
-                    setLogs(prev => ({
-                        ...prev,
-                        [data.provider]: [...prev[data.provider], data.data].slice(-100) // Keep last 100
-                    }));
+                if (data.type === 'LOG_EVENT') {
+                    if (!isPausedRef.current) {
+                        setLogs(prev => ({
+                            ...prev,
+                            [data.provider]: [...prev[data.provider], data.data].slice(-100) // Keep last 100
+                        }));
+                    }
+                } else if (data.type === 'RESET') {
+                    setLogs({ goldrush: [], codex: [] });
                 }
             } catch (e) {
                 // Ignore parse errors
@@ -702,8 +710,8 @@ function StatsPage({ onBack }) {
                     <div className="log-column">
                         <div className="log-column-header goldrush">GoldRush ({logs.goldrush.length})</div>
                         <div className="log-content" ref={grLogRef}>
-                            {logs.goldrush.map(log => (
-                                <div key={log.id} className="log-entry goldrush">
+                            {logs.goldrush.map((log, i) => (
+                                <div key={log.id || `gr-${i}`} className="log-entry goldrush">
                                     <span className="log-event">#{log.eventNum} {log.eventType}</span>
                                     <span className="log-time">{new Date(log.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                                 </div>
@@ -714,8 +722,8 @@ function StatsPage({ onBack }) {
                     <div className="log-column">
                         <div className="log-column-header codex">Codex ({logs.codex.length})</div>
                         <div className="log-content" ref={cxLogRef}>
-                            {logs.codex.map(log => (
-                                <div key={log.id} className="log-entry codex">
+                            {logs.codex.map((log, i) => (
+                                <div key={log.id || `cx-${i}`} className="log-entry codex">
                                     <span className="log-event">#{log.eventNum} {log.eventType}</span>
                                     <span className="log-time">{new Date(log.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                                 </div>

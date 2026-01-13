@@ -82,10 +82,11 @@ function App() {
   };
 
   const handleMessage = (msg) => {
-    // Log incoming messages for debugging
+    // Log critical ticks only
     if (msg.type === 'TICK') {
       console.log('📉 TICK RECEIVED:', msg.data);
-    } else {
+    } else if (msg.type !== 'METRICS_UPDATE' && msg.type !== 'HISTORY_UPDATE' && msg.type !== 'LOG_EVENT') {
+      // Filter out noisy heartbeat and log messages
       console.log('📩 WS MESSAGE:', msg);
     }
 

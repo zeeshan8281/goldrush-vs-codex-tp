@@ -16,6 +16,10 @@ class RollingStats {
         }
     }
 
+    reset() {
+        this.samples = [];
+    }
+
     /**
      * Calculates percentile using Linear Interpolation method
      * Formula: v = x[k] + f * (x[k+1] - x[k])

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 
 const TokenSelector = ({ onChainChange }) => {
-    const [address, setAddress] = useState('0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b'); // Default VIRTUALS (Base)
+    const [address, setAddress] = useState('0x9c087Eb773291e50CF6c6a90ef0F4500e349B903'); // Default VIRTUALS (Base Pair)
     const [chain, setChain] = useState('BASE');
     const [loading, setLoading] = useState(false);
 
@@ -41,8 +41,8 @@ const TokenSelector = ({ onChainChange }) => {
                 className="bg-transparent border-none focus:ring-0 text-xs w-48 text-white font-mono cursor-pointer outline-none option:bg-black"
                 style={{ appearance: 'none' }}
             >
-                <option value="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263">BONK (Solana)</option>
-                <option value="0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b">VIRTUALS (Base)</option>
+                <option value="6oFWm7KPLfxnwMb3z5xwBoXNSPP3JJyirAPqPSiVcnsp">BONK (Solana)</option>
+                <option value="0x9c087Eb773291e50CF6c6a90ef0F4500e349B903">VIRTUALS (Base)</option>
             </select>
 
             <button

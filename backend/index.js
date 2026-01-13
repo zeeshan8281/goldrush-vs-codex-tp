@@ -52,7 +52,7 @@ const PORT = process.env.PORT || 3002;
 let SYMBOL = 'VIRTUAL';
 let VIRTUALS_ADDRESS = '0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b'; // Token address if needed, but we use PAIR for events
 let PAIR_ADDRESS = '0x9c087Eb773291e50CF6c6a90ef0F4500e349B903';
-let TOKEN_ADDRESS = PAIR_ADDRESS; // Codex events stream often uses Pair Address for swaps
+// TOKEN_ADDRESS Removed as requested
 let CURRENT_CHAIN = 'BASE_MAINNET';
 
 const CHAIN_CONFIG = {
@@ -90,7 +90,8 @@ let streamsStartTime = 0; // Global start time for fair comparison
 // Event counters for numbered logging
 let eventCounters = {
     goldrushOHLCV: 0,
-    goldrushUpdatePairs: 0,
+    goldrush: 0,
+    codex: 0,
     codexBars: 0
 };
 
@@ -115,14 +116,15 @@ app.post('/update-token', async (req, res) => {
     const newChain = isEVM ? 'BASE_MAINNET' : 'SOLANA_MAINNET';
     const config = CHAIN_CONFIG[newChain];
 
-    // Only restart if chain changed OR token changed OR pair changed
-    const needsFullRestart = newChain !== CURRENT_CHAIN || address !== TOKEN_ADDRESS || (pairAddress && pairAddress !== PAIR_ADDRESS);
+    // Only restart if chain changed OR pair changed
+    // We treat 'address' in body as PAIR ADDRESS if pairAddress is not explicitly provided
+    const targetPair = pairAddress || address;
+    const needsFullRestart = newChain !== CURRENT_CHAIN || targetPair !== PAIR_ADDRESS;
 
     if (needsFullRestart) {
         console.log(`\n🔄 SWITCHING TO ${newChain} NETWORK...`);
         CURRENT_CHAIN = newChain;
-        TOKEN_ADDRESS = address;
-        if (pairAddress) PAIR_ADDRESS = pairAddress; // Update if provided
+        PAIR_ADDRESS = targetPair;
         SYMBOL = symbol || (isEVM ? 'TOKEN' : 'BONK');
         CODEX_NETWORK_ID = config.codexNetworkId;
 
@@ -147,20 +149,64 @@ app.post('/update-token', async (req, res) => {
             codex: { sum: 0, count: 0 }
         };
 
+        // Reset Rolling Stats (Fixes stale P95/Jitter)
+        grStats.reset();
+        cxStats.reset();
+
         latency300 = {
             goldrush: { samples: [], sum: 0 },
             codex: { samples: [], sum: 0 }
         };
 
         connectionMetrics = {
-            goldrush: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null },
-            codex: { loadStart: 0, loadTime: 0, connects: 0, errors: 0, lastError: null }
+            goldrush: {
+                ringBufferStart: 0,
+                ringBufferTTFD: 0,
+                ringBufferReceived: false,
+                liveDataTTFD: 0,
+                connects: 0,
+                errors: 0,
+                lastError: null
+            },
+            codex: {
+                liveDataStart: 0,
+                liveDataTTFD: 0,
+                connects: 0,
+                errors: 0,
+                lastError: null
+            }
         };
+
+        // Reset Event Counters
+        eventCounters = { goldrush: 0, codex: 0, goldrushOHLCV: 0, codexBars: 0 };
 
         latencyDelta = {
             goldrush: { prevLatency: null, deltas: [], sum: 0 },
             codex: { prevLatency: null, deltas: [], sum: 0 }
         };
+
+        // Reset Global Interval Buckets
+        intervalLatencies = {
+            goldrush: [],
+            codex: []
+        };
+
+        // Reset Carry-Forward Stats
+        lastIntervalStats = {
+            goldrush: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 },
+            codex: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 }
+        };
+
+        lastIntervalEndVal = {
+            goldrush: 0,
+            codex: 0
+        };
+
+        codexLatestStats = { p50: 0, p95: 0, jitter: 0 };
+
+        // Reset Timestamps for fair comparison restart
+        streamsStartTime = Date.now();
+        console.log("⚠️ FULL BACKEND STATE RESET TRIGGERED ⚠️");
 
         // Update Providers
         // 1. GoldRush
@@ -704,7 +750,8 @@ function startCodexSubscription() {
         }
     `;
 
-    codexWsClient.subscribe(
+    // Subscribe to Events
+    const eventsUnsub = codexWsClient.subscribe(
         {
             query,
             variables: { address, networkId }
@@ -730,9 +777,6 @@ function startCodexSubscription() {
             complete: () => console.log('🐢 Codex Subscription Complete')
         }
     );
-
-    codexCleanup = () => codexWsClient.dispose();
-    console.log("✅ Codex GraphQL Subscription Active (Events)!");
 
     // --- SECOND SUBSCRIPTION: onBarsUpdated for Bar Chart Throughput ---
     console.log("📊 Starting Codex onBarsUpdated Stream (Bar Chart)...");
@@ -774,7 +818,7 @@ function startCodexSubscription() {
         }
     `;
 
-    codexBarsClient.subscribe(
+    const barsUnsub = codexBarsClient.subscribe(
         { query: barsQuery, variables: { pairId } },
         {
             next: (result) => {
@@ -815,15 +859,15 @@ function startCodexSubscription() {
                         type: 'LOG_EVENT',
                         provider: 'codex',
                         data: {
-                            id: `codex-${eventCounters.codexBars}`,
+                            id: `cx-bar-${eventCounters.codexBars}`,
                             eventNum: eventCounters.codexBars,
                             eventType: 'onBarsUpdated',
                             time: timeStr,
+                            timestamp: bar.timestamp,
                             o: agg?.o?.toFixed(4),
                             h: agg?.h?.toFixed(4),
                             l: agg?.l?.toFixed(4),
                             c: agg?.c?.toFixed(4),
-                            timestamp: bar.timestamp,
                             latency: latency
                         }
                     });
@@ -843,15 +887,17 @@ function startCodexSubscription() {
                 }
             },
             error: (err) => console.error('❌ Codex Bars Subscription Error:', err),
-            complete: () => console.log('📊 Codex Bars Subscription Complete')
+            complete: () => console.log('Codex Bars Stream Completed')
         }
     );
 
-    // Update cleanup to dispose BOTH clients
-    const originalCleanup = codexCleanup;
+    // Assign Cleanup Function
     codexCleanup = () => {
-        try { originalCleanup(); } catch (e) { }
-        try { codexBarsClient.dispose(); } catch (e) { }
+        console.log('🛑 Disposing Codex Clients...');
+        eventsUnsub();
+        barsUnsub();
+        codexWsClient.dispose();
+        codexBarsClient.dispose();
     };
 }
 
@@ -885,7 +931,7 @@ async function fetchCodexPrice() {
         const query = `
             query {
                 getBars(
-                    symbol: "${TOKEN_ADDRESS}:${CODEX_NETWORK_ID}"
+                    symbol: "${PAIR_ADDRESS}:${CODEX_NETWORK_ID}"
                     from: ${lookback}
                     to: ${now}
                     resolution: "1"
@@ -958,6 +1004,13 @@ async function fetchCodexPrice() {
 let goldrushCleanup = null;
 
 function startStream() {
+    // 1. Cleanup previous stream if exists
+    if (goldrushCleanup) {
+        console.log('🧹 Cleaning up previous GoldRush streams...');
+        goldrushCleanup();
+        goldrushCleanup = null;
+    }
+
     console.log(`🚀 Starting GoldRush OHLCV Pairs Stream on: ${CURRENT_CHAIN}`);
     connectionMetrics.goldrush.ringBufferStart = Date.now(); // Start timer for Ring Buffer TTFD
 
@@ -1012,7 +1065,7 @@ function startStream() {
     }`;
 
     // Subscribe and handle events
-    grWsClient.subscribe({ query }, {
+    const ohlcvUnsub = grWsClient.subscribe({ query }, {
         next: (result) => {
             const candles = result?.data?.ohlcvCandlesForPair;
             if (candles && candles.length > 0) {
@@ -1031,12 +1084,20 @@ function startStream() {
                         connectionMetrics.goldrush.ringBufferTTFD = Date.now() - connectionMetrics.goldrush.ringBufferStart;
                         console.log(`[${timeStr}] [GOLDRUSH] RING BUFFER  | Received ${candles.length} candles | TTFD: ${connectionMetrics.goldrush.ringBufferTTFD}ms`);
                     } else {
-                        // Single candle = first LIVE data after buffer
+                        // Single candle = first LIVE data after buffer (or empty buffer)
                         connectionMetrics.goldrush.ringBufferReceived = true;
+
+                        // If we never got a large buffer, the "buffer" time is just now
+                        if (connectionMetrics.goldrush.ringBufferTTFD === 0) {
+                            connectionMetrics.goldrush.ringBufferTTFD = Date.now() - connectionMetrics.goldrush.ringBufferStart;
+                        }
+
                         connectionMetrics.goldrush.liveDataTTFD = Date.now() - connectionMetrics.goldrush.ringBufferStart;
-                        console.log(`[${timeStr}] [GOLDRUSH] RING BUFFER  | Complete | TTFD: ${connectionMetrics.goldrush.ringBufferTTFD}ms`);
+                        console.log(`[${timeStr}] [GOLDRUSH] RING BUFFER  | Skipped/Complete | TTFD: ${connectionMetrics.goldrush.ringBufferTTFD}ms`);
                         console.log(`[${timeStr}] [GOLDRUSH] LIVE DATA    | First candle | TTFD: ${connectionMetrics.goldrush.liveDataTTFD}ms`);
                     }
+                } else {
+                    // Subsequent Live Data Candles
                 }
 
                 processGoldrushOHLCV(candles);
@@ -1050,9 +1111,6 @@ function startStream() {
         complete: () => console.log('GoldRush OHLCV Stream Completed')
     });
 
-    // Cleanup logic for OHLCV client
-    const disposeOHLCV = () => grWsClient.dispose();
-
     // --- SEPARATE CLIENT: updatePairs for LATENCY METRICS (not for TTFD) ---
     console.log('📊 Starting GoldRush updatePairs Stream...');
     const grUpdatePairsClient = createClient({
@@ -1062,44 +1120,50 @@ function startStream() {
             GOLDRUSH_API_KEY: process.env.COVALENT_API_KEY
         },
         on: {
-            connected: () => console.log('✅ Connected to GoldRush updatePairs Stream!'),
-            error: (err) => console.error('❌ GoldRush updatePairs WS Error:', err)
+            connected: () => {
+                console.log('✅ Connected to GoldRush updatePairs Stream!');
+            },
+            error: (err) => console.error('❌ GoldRush UpdatePairs WS Error:', err),
+            closed: () => console.log('📴 GoldRush updatePairs Stream Disconnected')
         }
     });
 
-    const updatePairsQuery = `subscription {
+    const updateQuery = `subscription {
         updatePairs(
             chain_name: ${CURRENT_CHAIN}
-            pair_addresses: ["${PAIR_ADDRESS.toLowerCase()}"]
+            pair_addresses: ["${PAIR_ADDRESS}"]
         ) {
             chain_name
             pair_address
             timestamp
             quote_rate
             quote_rate_usd
-            volume
-            volume_usd
-            market_cap
-            liquidity
         }
     }`;
 
-    grUpdatePairsClient.subscribe({ query: updatePairsQuery }, {
+    const updateUnsub = grUpdatePairsClient.subscribe({ query: updateQuery }, {
         next: (result) => {
             const update = result?.data?.updatePairs;
-            if (update && update.timestamp) {
-                eventCounters.goldrushUpdatePairs++;
+            if (update) {
+                eventCounters.goldrush++;
                 const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
-                console.log(`\n[GOLDRUSH] updatePairs Event #${eventCounters.goldrushUpdatePairs}`);
+                console.log(`\n[GOLDRUSH] updatePairs Event #${eventCounters.goldrush}`);
                 console.log(`  Timestamp: ${update.timestamp}`);
+
+                // Calculate Latency
+                const eventTime = new Date(update.timestamp).getTime();
+                const latency = Date.now() - eventTime;
+
+                // Log uniformed format
+                console.log(`[${timeStr}] [GOLDRUSH] STREAM     | Tick received | Price: $${update.quote_rate_usd?.toFixed(2)} | Latency: ${latency}ms | Timestamp: ${update.timestamp}`);
 
                 // Broadcast log event to frontend
                 broadcast({
                     type: 'LOG_EVENT',
                     provider: 'goldrush',
                     data: {
-                        id: `gr-update-${eventCounters.goldrushUpdatePairs}`,
-                        eventNum: eventCounters.goldrushUpdatePairs,
+                        id: `gr-update-${eventCounters.goldrush}`,
+                        eventNum: eventCounters.goldrush,
                         eventType: 'updatePairs',
                         time: timeStr,
                         timestamp: update.timestamp,
@@ -1107,19 +1171,22 @@ function startStream() {
                     }
                 });
 
+                // Map to internal format expected by processGoldrushUpdate
+                update.price_usd = update.quote_rate_usd;
                 processGoldrushUpdate(update);
             }
         },
-        error: (err) => {
-            console.error('❌ GoldRush updatePairs Error:', err);
-        },
-        complete: () => console.log('GoldRush updatePairs Stream Completed')
+        error: (err) => console.error('❌ GoldRush UpdatePairs Error:', err),
+        complete: () => console.log('GoldRush UpdatePairs Stream Completed')
     });
 
-    // Cleanup BOTH clients
+    // Assign removal function to global variable
     goldrushCleanup = () => {
-        try { disposeOHLCV(); } catch (e) { }
-        try { grUpdatePairsClient.dispose(); } catch (e) { }
+        console.log('🛑 Disposing GoldRush Clients...');
+        ohlcvUnsub();
+        updateUnsub();
+        grWsClient.dispose();
+        grUpdatePairsClient.dispose();
     };
 }
 

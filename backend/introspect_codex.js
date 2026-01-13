@@ -5,15 +5,17 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const query = `
   query {
     __type(name: "Subscription") {
-      name
-      fields {
+      fields(includeDeprecated: true) {
         name
-        description
         args {
           name
           type {
+            name
+            kind
+            ofType {
               name
               kind
+            }
           }
         }
       }
