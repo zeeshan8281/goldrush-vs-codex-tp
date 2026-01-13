@@ -378,6 +378,125 @@ const CandlesPerIntervalChart = ({ history, icon: Icon }) => {
     );
 };
 
+// Average Latency Bar Chart - Grouped Bar Chart using Recharts
+const AvgLatencyBarChart = ({ history, icon: Icon }) => {
+    const allProviders = [
+        { key: 'goldrush', label: 'GoldRush', color: '#ef4444' },
+        { key: 'codex', label: 'Codex', color: '#3b82f6' }
+    ];
+
+    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex']);
+
+    const toggleProvider = (key) => {
+        setVisibleProviders(prev =>
+            prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]
+        );
+    };
+
+    // Aggregate latency data into 5-minute bins
+    const groupedData = history?.reduce((acc, h) => {
+        const time = new Date(h.time);
+        // Round to nearest 5 minutes
+        const minutes = Math.floor(time.getMinutes() / 5) * 5;
+        time.setMinutes(minutes);
+        time.setSeconds(0);
+
+        const label = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+        if (!acc[label]) {
+            acc[label] = { grLatency: 0, cxLatency: 0, grCount: 0, cxCount: 0 };
+        }
+
+        // Only add if there's actual latency data (not 0)
+        if (h.goldrush?.avgLatency > 0) {
+            acc[label].grLatency += h.goldrush.avgLatency;
+            acc[label].grCount += 1;
+        }
+        if (h.codex?.avgLatency > 0) {
+            acc[label].cxLatency += h.codex.avgLatency;
+            acc[label].cxCount += 1;
+        }
+
+        return acc;
+    }, {}) || {};
+
+    const chartData = Object.keys(groupedData).map(label => {
+        const group = groupedData[label];
+        // Calculate average latency for the 5-minute bin
+        const grVal = group.grCount > 0 ? Math.round(group.grLatency / group.grCount) : 0;
+        const cxVal = group.cxCount > 0 ? Math.round(group.cxLatency / group.cxCount) : 0;
+
+        return {
+            time: label,
+            GoldRush: grVal,
+            Codex: cxVal
+        };
+    });
+
+    return (
+        <div className="comparison-chart">
+            <div className="chart-header">
+                {Icon && <Icon size={18} />}
+                <span className="chart-title">Average Latency (ms)</span>
+                <div className="info-tooltip-wrapper">
+                    <Info size={14} className="info-icon" />
+                    <div className="info-tooltip">Average latency (Receive Time - Block Time) per 5-minute interval.</div>
+                </div>
+            </div>
+            <div className="provider-toggles">
+                {allProviders.map(p => (
+                    <label key={p.key} className="provider-toggle" style={{ color: p.color }}>
+                        <input
+                            type="checkbox"
+                            checked={visibleProviders.includes(p.key)}
+                            onChange={() => toggleProvider(p.key)}
+                        />
+                        <span className="toggle-dot" style={{ background: visibleProviders.includes(p.key) ? p.color : '#555' }} />
+                        {p.label}
+                    </label>
+                ))}
+            </div>
+            <div style={{ width: '100%', height: 200 }}>
+                <ResponsiveContainer>
+                    <BarChart data={chartData} barGap={2} barCategoryGap="20%">
+                        <XAxis
+                            dataKey="time"
+                            tick={{ fill: '#666', fontSize: 10 }}
+                            axisLine={{ stroke: '#333' }}
+                            tickLine={{ stroke: '#333' }}
+                        />
+                        <YAxis
+                            tick={{ fill: '#666', fontSize: 10 }}
+                            axisLine={{ stroke: '#333' }}
+                            tickLine={{ stroke: '#333' }}
+                            tickFormatter={(value) => value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${value}ms`}
+                        />
+                        <Tooltip
+                            contentStyle={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 4 }}
+                            labelStyle={{ color: '#888' }}
+                            formatter={(value) => [`${value}ms`, '']}
+                        />
+                        {visibleProviders.includes('goldrush') && (
+                            <Bar dataKey="GoldRush" fill="#ef4444" radius={[2, 2, 0, 0]} />
+                        )}
+                        {visibleProviders.includes('codex') && (
+                            <Bar dataKey="Codex" fill="#3b82f6" radius={[2, 2, 0, 0]} />
+                        )}
+                    </BarChart>
+                </ResponsiveContainer>
+            </div>
+            <div className="chart-legend">
+                {allProviders.filter(p => visibleProviders.includes(p.key)).map(p => (
+                    <div key={p.key} className="legend-item" style={{ color: p.color }}>
+                        <span className="legend-dot" style={{ background: p.color }} />
+                        <span className="legend-name">{p.label}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 function StatsPage({ onBack }) {
     const [stats, setStats] = useState(null);
     const [metricsHistory, setMetricsHistory] = useState([]);
@@ -460,13 +579,9 @@ function StatsPage({ onBack }) {
                     data={metricsHistory.length > 0 ? metricsHistory[metricsHistory.length - 1] : null}
                     icon={Gauge}
                 />
-                <ComparisonChart
-                    title="Average Latency (ms)"
-                    metricKey="avgLatency"
+                <AvgLatencyBarChart
                     history={metricsHistory}
                     icon={Activity}
-                    unit="ms"
-                    formula="Average latency (Receive Time - Block Time) over the interval."
                 />
             </div>
 
