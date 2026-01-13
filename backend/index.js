@@ -87,6 +87,13 @@ let clients = new Set();
 let isRunning = true;
 let streamsStartTime = 0; // Global start time for fair comparison
 
+// Event counters for numbered logging
+let eventCounters = {
+    goldrushOHLCV: 0,
+    goldrushUpdatePairs: 0,
+    codexBars: 0
+};
+
 // --- SERVER SETUP ---
 const app = express();
 app.use(cors());
@@ -787,7 +794,29 @@ function startCodexSubscription() {
                     if (latency >= 0 && latency < 60000) intervalLatencies.codex.push(latency);
 
                     const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
-                    console.log(`[${timeStr}] [CODEX   ] STREAM     | Tick received | Price: $${parseFloat(price).toFixed(2)} | Latency: ${latency}ms`);
+                    eventCounters.codexBars++;
+                    const agg = bar.aggregates?.r1?.usd;
+                    console.log(`\n[${timeStr}] [CODEX] onBarsUpdated Event #${eventCounters.codexBars}`);
+                    console.log(`  O:${agg?.o?.toFixed(4)} H:${agg?.h?.toFixed(4)} L:${agg?.l?.toFixed(4)} C:${agg?.c?.toFixed(4)}`);
+                    console.log(`  Timestamp: ${bar.timestamp} | Latency: ${latency}ms`);
+
+                    // Broadcast log event to frontend
+                    broadcast({
+                        type: 'LOG_EVENT',
+                        provider: 'codex',
+                        data: {
+                            id: `codex-${eventCounters.codexBars}`,
+                            eventNum: eventCounters.codexBars,
+                            eventType: 'onBarsUpdated',
+                            time: timeStr,
+                            o: agg?.o?.toFixed(4),
+                            h: agg?.h?.toFixed(4),
+                            l: agg?.l?.toFixed(4),
+                            c: agg?.c?.toFixed(4),
+                            timestamp: bar.timestamp,
+                            latency: latency
+                        }
+                    });
 
                     broadcast({
                         type: 'SLOW_TICK',
@@ -914,237 +943,6 @@ async function fetchCodexPrice() {
     }
 }
 
-// --- COINGECKO INTEGRATION ---
-async function fetchGeckoPool(tokenAddress) {
-    // 1. Find the best pool for this token on the current chain
-    try {
-        const network = CURRENT_CHAIN === 'BASE_MAINNET' ? 'base' : 'solana';
-        console.log(`🦎 Finding Pool for ${SYMBOL} (${tokenAddress}) on ${network}...`);
-        const url = `https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${tokenAddress}/pools?page=1`;
-        const res = await axios.get(url, {
-            headers: { 'Accept': 'application/json' }
-        });
-
-        const pools = res.data?.data;
-        if (pools && pools.length > 0) {
-            // Pick the first one (usually highest liquidity)
-            const pool = pools[0];
-            const poolAddress = pool.attributes.address;
-            console.log(`🦎 Found Pool: ${poolAddress} (Liquidity: $${pool.attributes.reserve_in_usd})`);
-            return poolAddress;
-        } else {
-            console.warn("⚠️ No pools found on GeckoTerminal for this token.");
-            return null;
-        }
-    } catch (err) {
-        console.error("❌ Gecko Pool Lookup Error:", err.message);
-        return null;
-    }
-}
-
-function startGeckoStream() {
-    if (geckoCleanup) {
-        // If it's a WS client, close it
-        try { geckoCleanup.close(); } catch (e) { }
-        geckoCleanup = null;
-    }
-    if (geckoTradeCleanup) {
-        try { geckoTradeCleanup.close(); } catch (e) { }
-        geckoTradeCleanup = null;
-    }
-
-    // 1. Resolve Pool Address First
-    // Gecko needs a TOKEN address to find pools, but TOKEN_ADDRESS is currently our Pair Address
-    const targetToken = CURRENT_CHAIN === 'BASE_MAINNET' ? VIRTUALS_ADDRESS : TOKEN_ADDRESS;
-
-    fetchGeckoPool(targetToken).then(poolAddress => {
-        if (!poolAddress) return;
-
-        console.log(`🦎 Connecting to CoinGecko Stream...`);
-        connectionMetrics.gecko.loadStart = Date.now();
-        const ws = new WebSocket(`wss://stream.coingecko.com/v1?x_cg_pro_api_key=${process.env.COINGECKO_API_KEY}`);
-
-        geckoCleanup = ws; // Save ref to close later
-
-        ws.on('open', () => {
-            console.log("✅ Connected to CoinGecko Stream!");
-            connectionMetrics.gecko.connects++;
-            // Subscribe to OnchainOHLCV
-            const subMsg = {
-                command: "subscribe",
-                identifier: JSON.stringify({ channel: "OnchainOHLCV" })
-            };
-            ws.send(JSON.stringify(subMsg));
-        });
-
-        ws.on('message', (data) => {
-            const msg = JSON.parse(data.toString());
-
-            // Handle Subscription Confirmation
-            if (msg.type === 'confirm_subscription') {
-                console.log("🦎 Subscription Confirmed. Configuring Pool...");
-                // Set the pool to stream: Solana network (solana), 1m interval, base token
-                // DYNAMIC NETWORK:
-                const geckoNetwork = CURRENT_CHAIN === 'BASE_MAINNET' ? 'base' : 'solana';
-
-                const configMsg = {
-                    command: "message",
-                    identifier: JSON.stringify({ channel: "OnchainOHLCV" }),
-                    data: JSON.stringify({
-                        "network_id:pool_addresses": [`${geckoNetwork}:${poolAddress}`],
-                        "interval": "1m",
-                        "token": "base",
-                        "action": "set_pools"
-                    })
-                };
-                ws.send(JSON.stringify(configMsg));
-            }
-
-            // Handle Pool Configuration Success
-            if (msg.message && typeof msg.message === 'string' && msg.message.includes("Subscription successful")) {
-                console.log(`🦎 Streaming started for ${poolAddress}`);
-            }
-
-            // Handle OHLCV Data (for charts only, NOT latency)
-            // CoinGecko may send data directly or wrapped in msg.message
-            const ohlcvData = msg.message || msg;
-            if (ohlcvData && ohlcvData.c && ohlcvData.t) {
-                // TTFD now calculated in processGeckoTrade (OnchainTrade) for speed
-                processGeckoOHLCV(ohlcvData);
-            }
-        });
-
-        ws.on('error', (err) => {
-            console.error("❌ Gecko Stream Error:", err.message);
-            connectionMetrics.gecko.errors++;
-            connectionMetrics.gecko.lastError = Date.now();
-        });
-        ws.on('close', () => console.log("📴 Gecko Stream Disconnected"));
-
-        // --- SECOND CONNECTION: OnchainTrade for LATENCY METRICS ---
-        console.log('📊 Starting CoinGecko OnchainTrade Stream...');
-        const tradeWs = new WebSocket(`wss://stream.coingecko.com/v1?x_cg_pro_api_key=${process.env.COINGECKO_API_KEY}`);
-        geckoTradeCleanup = tradeWs;
-
-        tradeWs.on('open', () => {
-            console.log("✅ Connected to CoinGecko OnchainTrade Stream!");
-            // Subscribe to OnchainTrade channel
-            const subMsg = {
-                command: "subscribe",
-                identifier: JSON.stringify({ channel: "OnchainTrade" })
-            };
-            tradeWs.send(JSON.stringify(subMsg));
-        });
-
-        tradeWs.on('message', (data) => {
-            const msg = JSON.parse(data.toString());
-
-            // Handle Subscription Confirmation
-            if (msg.type === 'confirm_subscription') {
-                console.log("🦎 OnchainTrade Subscription Confirmed. Configuring Pool...");
-                const geckoNetwork = CURRENT_CHAIN === 'BASE_MAINNET' ? 'base' : 'solana';
-                const configMsg = {
-                    command: "message",
-                    identifier: JSON.stringify({ channel: "OnchainTrade" }),
-                    data: JSON.stringify({
-                        "network_id:pool_addresses": [`${geckoNetwork}:${poolAddress}`],
-                        "action": "set_pools"
-                    })
-                };
-                tradeWs.send(JSON.stringify(configMsg));
-            }
-
-            // Handle Trade Data (for latency metrics)
-            const tradeData = msg.message || msg;
-            // OnchainTrade has: t (timestamp), ty (type), vo (volume), pu (price_usd), tx (tx_hash)
-            if (tradeData && tradeData.t && tradeData.ty) {
-                processGeckoTrade(tradeData);
-            }
-        });
-
-        tradeWs.on('error', (err) => {
-            console.error("❌ Gecko Trade Stream Error:", err.message);
-        });
-        tradeWs.on('close', () => console.log("📴 Gecko Trade Stream Disconnected"));
-    });
-}
-
-// --- COINGECKO: Process OHLCV Data (charts only, latency comes from OnchainTrade) ---
-function processGeckoOHLCV(ohlcv) {
-    if (!ohlcv || !ohlcv.t || !ohlcv.c) return;
-
-    const price = parseFloat(ohlcv.c);
-
-    // Candle Logic
-    const timeMs = ohlcv.t * 1000;
-    const newCandle = {
-        time: timeMs,
-        open: parseFloat(ohlcv.o),
-        high: parseFloat(ohlcv.h),
-        low: parseFloat(ohlcv.l),
-        close: parseFloat(ohlcv.c),
-        volume: parseFloat(ohlcv.v)
-    };
-
-    // Update State
-    pairs[SYMBOL].geckoPrice = price;
-
-    const candleMap = new Map();
-    geckoCandles.forEach(c => candleMap.set(c.time, c));
-    candleMap.set(newCandle.time, newCandle);
-
-    geckoCandles = Array.from(candleMap.values())
-        .sort((a, b) => a.time - b.time)
-        .slice(-15);
-
-    // Broadcast candle update (latency stats come from OnchainTrade stream)
-    // TTFD: First OHLCV candle = System Ready (per standardization)
-    if (connectionMetrics.gecko.loadTime === 0) {
-        connectionMetrics.gecko.loadTime = Date.now() - connectionMetrics.gecko.loadStart;
-        console.log(`✅ Gecko Time to First Data (OnchainOHLCV): ${connectionMetrics.gecko.loadTime}ms`);
-    }
-    // Throughput counting for bar chart (per implementation plan)
-    countUpdate('gecko');
-
-    broadcast({
-        type: 'CANDLE_UPDATE',
-        provider: 'GECKO',
-        data: {
-            timestamp: Date.now(),
-            price: price,
-            candles: geckoCandles
-        }
-    });
-}
-
-// --- COINGECKO: Process OnchainTrade for LATENCY METRICS ---
-function processGeckoTrade(trade) {
-    if (!trade || !trade.t) return;
-
-    // Track TTFD here (First Trade Event = System Alive)\n    // TTFD now calculated in processGeckoOHLCV (standardized to bar chart stream)
-
-    const now = Date.now();
-    // trade.t is Unix timestamp in ms (per CoinGecko docs: 1752072129000)
-    const blockTime = trade.t;
-    const latency = now - blockTime; // client_receive_time - block_time
-
-    // Add to rolling stats for p50/p95/p99
-    gkStats.add(latency);
-    latestLatency.gecko = latency;
-    addLatencySample('gecko', latency);
-    latencyStats.gecko.sum += latency;
-    latencyStats.gecko.count++;
-    addLatencyDelta('gecko', latency);
-
-    // Interval Push (Raw Jitter)
-    if (intervalLatencies.gecko) intervalLatencies.gecko.push(latency);
-
-    // Note: Throughput counting now done in processGeckoOHLCV (bar chart uses OHLCV)
-
-    // Log Gecko latency
-    const price = parseFloat(trade.pu || 0).toFixed(2);
-    process.stdout.write(`[GECKO   ] STREAM     | Tick received | Price: $${price} | Latency: ${latency}ms\r`);
-}
 
 // --- GOLDRUSH STREAM (raw graphql-ws) ---
 let goldrushCleanup = null;
@@ -1206,9 +1004,15 @@ function startStream() {
     // Subscribe and handle events
     grWsClient.subscribe({ query }, {
         next: (result) => {
-            console.log('⚡ GoldRush OHLCV Received:', JSON.stringify(result).substring(0, 200));
             const candles = result?.data?.ohlcvCandlesForPair;
             if (candles && candles.length > 0) {
+                eventCounters.goldrushOHLCV++;
+                const c = candles[candles.length - 1];
+                const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+                console.log(`\n[GOLDRUSH] OHLCV Event #${eventCounters.goldrushOHLCV}`);
+                console.log(`  O:${c.open?.toFixed(4)} H:${c.high?.toFixed(4)} L:${c.low?.toFixed(4)} C:${c.close?.toFixed(4)} V:${c.volume?.toFixed(2)}`);
+                console.log(`  Timestamp: ${c.timestamp}`);
+
                 // TTFD now calculated from updatePairs (raw latency stream)
                 processGoldrushOHLCV(candles);
             }
@@ -1257,11 +1061,27 @@ function startStream() {
 
     grUpdatePairsClient.subscribe({ query: updatePairsQuery }, {
         next: (result) => {
-            // Debug: log the full result structure
-            console.log(`📊 GoldRush updatePairs raw:`, JSON.stringify(result).substring(0, 300));
-
             const update = result?.data?.updatePairs;
             if (update && update.timestamp) {
+                eventCounters.goldrushUpdatePairs++;
+                const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+                console.log(`\n[GOLDRUSH] updatePairs Event #${eventCounters.goldrushUpdatePairs}`);
+                console.log(`  Timestamp: ${update.timestamp}`);
+
+                // Broadcast log event to frontend
+                broadcast({
+                    type: 'LOG_EVENT',
+                    provider: 'goldrush',
+                    data: {
+                        id: `gr-update-${eventCounters.goldrushUpdatePairs}`,
+                        eventNum: eventCounters.goldrushUpdatePairs,
+                        eventType: 'updatePairs',
+                        time: timeStr,
+                        timestamp: update.timestamp,
+                        price: update.quote_rate_usd?.toFixed(4)
+                    }
+                });
+
                 // Track TTFD from first updatePairs packet (more accurate freshness)
                 if (connectionMetrics.goldrush.loadTime === 0) {
                     connectionMetrics.goldrush.loadTime = Date.now() - connectionMetrics.goldrush.loadStart;

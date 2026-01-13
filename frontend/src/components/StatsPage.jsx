@@ -503,6 +503,12 @@ function StatsPage({ onBack }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
+    // Live Log Terminal State
+    const [logs, setLogs] = useState({ goldrush: [], codex: [] });
+    const [isPaused, setIsPaused] = useState(false);
+    const grLogRef = useRef(null);
+    const cxLogRef = useRef(null);
+
     // Fetch stats and metrics history
     const fetchData = async () => {
         try {
@@ -528,6 +534,42 @@ function StatsPage({ onBack }) {
         const interval = setInterval(fetchData, 5000); // Refresh every 5s
         return () => clearInterval(interval);
     }, []);
+
+    // WebSocket for live logs
+    const isPausedRef = useRef(isPaused);
+    isPausedRef.current = isPaused; // Keep ref in sync with state
+
+    useEffect(() => {
+        const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:3002`;
+        const ws = new WebSocket(WS_URL);
+
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'LOG_EVENT' && !isPausedRef.current) {
+                    setLogs(prev => ({
+                        ...prev,
+                        [data.provider]: [...prev[data.provider], data.data].slice(-100) // Keep last 100
+                    }));
+                }
+            } catch (e) {
+                // Ignore parse errors
+            }
+        };
+
+        ws.onerror = () => { };
+        ws.onclose = () => { };
+
+        return () => ws.close();
+    }, []); // Empty dependency array - only connect once
+
+    // Auto-scroll to bottom when new logs arrive
+    useEffect(() => {
+        if (!isPaused) {
+            if (grLogRef.current) grLogRef.current.scrollTop = grLogRef.current.scrollHeight;
+            if (cxLogRef.current) cxLogRef.current.scrollTop = cxLogRef.current.scrollHeight;
+        }
+    }, [logs, isPaused]);
 
     const formatUptime = (ms) => {
         if (!ms || ms <= 0) return '0s';
@@ -583,6 +625,61 @@ function StatsPage({ onBack }) {
                     history={metricsHistory}
                     icon={Activity}
                 />
+            </div>
+
+            {/* Live Log Terminal */}
+            <div className="log-terminal">
+                <div className="log-header">
+                    <h3>📋 Live Logs</h3>
+                    <div className="log-controls">
+                        <button
+                            className={`log-btn ${isPaused ? 'paused' : ''}`}
+                            onClick={() => setIsPaused(!isPaused)}
+                        >
+                            {isPaused ? '▶ Resume' : '⏸ Pause'}
+                        </button>
+                        <button
+                            className="log-btn clear"
+                            onClick={() => setLogs({ goldrush: [], codex: [] })}
+                        >
+                            🗑 Clear
+                        </button>
+                    </div>
+                </div>
+                <div className="log-columns">
+                    <div className="log-column">
+                        <div className="log-column-header goldrush">GoldRush ({logs.goldrush.length})</div>
+                        <div className="log-content" ref={grLogRef}>
+                            {logs.goldrush.map(log => (
+                                <div key={log.id} className="log-entry goldrush">
+                                    <span className="log-event">#{log.eventNum} {log.eventType}</span>
+                                    {log.eventType === 'OHLCV' && (
+                                        <span className="log-details">O:{log.o} H:{log.h} L:{log.l} C:{log.c} V:{log.v}</span>
+                                    )}
+                                    {log.eventType === 'updatePairs' && (
+                                        <span className="log-details">Price: ${log.price}</span>
+                                    )}
+                                    <span className="log-time">{log.timestamp}</span>
+                                </div>
+                            ))}
+                            {logs.goldrush.length === 0 && <div className="log-empty">Waiting for events...</div>}
+                        </div>
+                    </div>
+                    <div className="log-column">
+                        <div className="log-column-header codex">Codex ({logs.codex.length})</div>
+                        <div className="log-content" ref={cxLogRef}>
+                            {logs.codex.map(log => (
+                                <div key={log.id} className="log-entry codex">
+                                    <span className="log-event">#{log.eventNum} {log.eventType}</span>
+                                    <span className="log-details">O:{log.o} H:{log.h} L:{log.l} C:{log.c}</span>
+                                    <span className="log-latency">Lat: {log.latency}ms</span>
+                                    <span className="log-time">{new Date(log.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                                </div>
+                            ))}
+                            {logs.codex.length === 0 && <div className="log-empty">Waiting for events...</div>}
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <style>{`
@@ -887,6 +984,145 @@ function StatsPage({ onBack }) {
                         grid-template-columns: 1fr;
                     }
                     .latency-table {
+                        grid-template-columns: 1fr;
+                    }
+                }
+
+                /* Log Terminal Styles */
+                .log-terminal {
+                    background: #111;
+                    border: 1px solid #333;
+                    border-radius: 8px;
+                    margin-top: 16px;
+                    overflow: hidden;
+                }
+                
+                .log-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 12px 16px;
+                    background: #1a1a1a;
+                    border-bottom: 1px solid #333;
+                }
+                
+                .log-header h3 {
+                    margin: 0;
+                    font-size: 14px;
+                    color: #fff;
+                }
+                
+                .log-controls {
+                    display: flex;
+                    gap: 8px;
+                }
+                
+                .log-btn {
+                    padding: 6px 12px;
+                    font-size: 12px;
+                    border: 1px solid #444;
+                    border-radius: 4px;
+                    background: #222;
+                    color: #fff;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }
+                
+                .log-btn:hover {
+                    background: #333;
+                }
+                
+                .log-btn.paused {
+                    background: #2563eb;
+                    border-color: #3b82f6;
+                }
+                
+                .log-btn.clear {
+                    background: #7f1d1d;
+                    border-color: #ef4444;
+                }
+                
+                .log-columns {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 0;
+                }
+                
+                .log-column {
+                    border-right: 1px solid #333;
+                }
+                
+                .log-column:last-child {
+                    border-right: none;
+                }
+                
+                .log-column-header {
+                    padding: 8px 12px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    background: #1a1a1a;
+                    border-bottom: 1px solid #333;
+                }
+                
+                .log-column-header.goldrush {
+                    color: #ef4444;
+                }
+                
+                .log-column-header.codex {
+                    color: #3b82f6;
+                }
+                
+                .log-content {
+                    height: 200px;
+                    overflow-y: auto;
+                    font-family: 'Monaco', 'Menlo', monospace;
+                    font-size: 11px;
+                    padding: 8px;
+                }
+                
+                .log-entry {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 8px;
+                    padding: 4px 0;
+                    border-bottom: 1px solid #222;
+                }
+                
+                .log-entry.goldrush .log-event {
+                    color: #ef4444;
+                }
+                
+                .log-entry.codex .log-event {
+                    color: #3b82f6;
+                }
+                
+                .log-event {
+                    font-weight: 600;
+                }
+                
+                .log-details {
+                    color: #888;
+                }
+                
+                .log-time {
+                    color: #666;
+                    font-size: 10px;
+                }
+                
+                .log-latency {
+                    color: #f59e0b;
+                    font-size: 10px;
+                }
+                
+                .log-empty {
+                    color: #555;
+                    text-align: center;
+                    padding: 40px;
+                    font-style: italic;
+                }
+                
+                @media (max-width: 600px) {
+                    .log-columns {
                         grid-template-columns: 1fr;
                     }
                 }
