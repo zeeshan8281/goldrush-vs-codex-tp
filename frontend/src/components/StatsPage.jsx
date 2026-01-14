@@ -9,17 +9,19 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3002';
 // Provider colors (with transparency for overlapping bars)
 const COLORS = {
     goldrush: '#ef4444cc',
-    codex: '#3b82f6cc'
+    codex: '#3b82f6cc',
+    mobula: '#22c55ecc'
 };
 
 // Stat Card with 3 provider values stacked vertically
 const StatCard = ({ title, metricKey, data, icon: Icon, unit = '', formula = '' }) => {
     const allProviders = [
         { key: 'goldrush', label: 'GoldRush', color: COLORS.goldrush },
-        { key: 'codex', label: 'Codex', color: COLORS.codex }
+        { key: 'codex', label: 'Codex', color: COLORS.codex },
+        { key: 'mobula', label: 'Mobula', color: COLORS.mobula }
     ];
 
-    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex']);
+    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex', 'mobula']);
 
     const toggleProvider = (key) => {
         setVisibleProviders(prev =>
@@ -117,6 +119,19 @@ const TTFDCard = ({ data, icon: Icon }) => {
                         </div>
                     </div>
                 </div>
+                {/* Mobula Column */}
+                <div className="ttfd-column mobula">
+                    <div className="ttfd-provider-header" style={{ color: COLORS.mobula }}>Mobula</div>
+                    <div className="ttfd-metrics">
+                        {/* Ring Buffer removed as requested */}
+                        <div className="ttfd-metric">
+                            <span className="ttfd-label">Live Data:</span>
+                            <span className="ttfd-value" style={{ color: COLORS.mobula }}>
+                                {formatMs(data?.mobula?.liveDataTTFD)}
+                            </span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     );
@@ -129,10 +144,11 @@ const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '', for
 
     const allProviders = [
         { key: 'goldrush', label: 'GoldRush', color: COLORS.goldrush },
-        { key: 'codex', label: 'Codex', color: COLORS.codex }
+        { key: 'codex', label: 'Codex', color: COLORS.codex },
+        { key: 'mobula', label: 'Mobula', color: COLORS.mobula }
     ];
 
-    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex']);
+    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex', 'mobula']);
 
     const toggleProvider = (key) => {
         setVisibleProviders(prev =>
@@ -166,6 +182,11 @@ const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '', for
             lineWidth: 4,
             title: 'Codex'
         });
+        seriesRefs.current.mobula = chart.addLineSeries({
+            color: COLORS.mobula,
+            lineWidth: 3,
+            title: 'Mobula'
+        });
 
 
         chartRef.current = chart;
@@ -188,7 +209,7 @@ const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '', for
         if (!history || !chartRef.current) return;
 
         // Update all series - show data or empty based on visibility
-        ['goldrush', 'codex'].forEach(provider => {
+        ['goldrush', 'codex', 'mobula'].forEach(provider => {
             const isVisible = visibleProviders.includes(provider);
             const data = history.map(h => ({
                 time: Math.floor(h.time / 1000),
@@ -250,10 +271,11 @@ const ComparisonChart = ({ title, metricKey, history, icon: Icon, unit = '', for
 const LatencyComparisonTable = ({ data, icon: Icon }) => {
     const allProviders = [
         { key: 'goldrush', label: 'GoldRush', color: COLORS.goldrush },
-        { key: 'codex', label: 'Codex', color: COLORS.codex }
+        { key: 'codex', label: 'Codex', color: COLORS.codex },
+        { key: 'mobula', label: 'Mobula', color: COLORS.mobula }
     ];
 
-    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex']);
+    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex', 'mobula']);
 
     const toggleProvider = (key) => {
         setVisibleProviders(prev =>
@@ -323,10 +345,11 @@ const LatencyComparisonTable = ({ data, icon: Icon }) => {
 const CandlesPerIntervalChart = ({ history, icon: Icon }) => {
     const allProviders = [
         { key: 'goldrush', label: 'GoldRush', color: '#ef4444' },
-        { key: 'codex', label: 'Codex', color: '#3b82f6' }
+        { key: 'codex', label: 'Codex', color: '#3b82f6' },
+        { key: 'mobula', label: 'Mobula', color: '#22c55e' }
     ];
 
-    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex']);
+    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex', 'mobula']);
 
     const toggleProvider = (key) => {
         setVisibleProviders(prev =>
@@ -347,7 +370,8 @@ const CandlesPerIntervalChart = ({ history, icon: Icon }) => {
         return {
             time: label,
             GoldRush: h.goldrush?.intervalEventCount || 0,
-            Codex: h.codex?.intervalEventCount || 0
+            Codex: h.codex?.intervalEventCount || 0,
+            Mobula: h.mobula?.intervalEventCount || 0
         };
     });
 
@@ -398,6 +422,9 @@ const CandlesPerIntervalChart = ({ history, icon: Icon }) => {
                         {visibleProviders.includes('codex') && (
                             <Bar dataKey="Codex" fill="#3b82f6" radius={[2, 2, 0, 0]} />
                         )}
+                        {visibleProviders.includes('mobula') && (
+                            <Bar dataKey="Mobula" fill="#22c55e" radius={[2, 2, 0, 0]} />
+                        )}
                     </BarChart>
                 </ResponsiveContainer>
             </div>
@@ -417,10 +444,11 @@ const CandlesPerIntervalChart = ({ history, icon: Icon }) => {
 const AvgLatencyBarChart = ({ history, icon: Icon }) => {
     const allProviders = [
         { key: 'goldrush', label: 'GoldRush', color: '#ef4444' },
-        { key: 'codex', label: 'Codex', color: '#3b82f6' }
+        { key: 'codex', label: 'Codex', color: '#3b82f6' },
+        { key: 'mobula', label: 'Mobula', color: '#22c55e' }
     ];
 
-    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex']);
+    const [visibleProviders, setVisibleProviders] = useState(['goldrush', 'codex', 'mobula']);
 
     const toggleProvider = (key) => {
         setVisibleProviders(prev =>
@@ -442,7 +470,7 @@ const AvgLatencyBarChart = ({ history, icon: Icon }) => {
         const label = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 
         if (!acc[label]) {
-            acc[label] = { grLatency: 0, cxLatency: 0, grCount: 0, cxCount: 0 };
+            acc[label] = { grLatency: 0, cxLatency: 0, mbLatency: 0, grCount: 0, cxCount: 0, mbCount: 0 };
         }
 
         // Only add if there's actual latency data (not 0)
@@ -454,6 +482,10 @@ const AvgLatencyBarChart = ({ history, icon: Icon }) => {
             acc[label].cxLatency += h.codex.avgLatency;
             acc[label].cxCount += 1;
         }
+        if (h.mobula?.avgLatency > 0) {
+            acc[label].mbLatency += h.mobula.avgLatency;
+            acc[label].mbCount += 1;
+        }
 
         return acc;
     }, {}) || {};
@@ -463,11 +495,13 @@ const AvgLatencyBarChart = ({ history, icon: Icon }) => {
         // Calculate average latency for the 1-minute bin
         const grVal = group.grCount > 0 ? Math.round(group.grLatency / group.grCount) : 0;
         const cxVal = group.cxCount > 0 ? Math.round(group.cxLatency / group.cxCount) : 0;
+        const mbVal = group.mbCount > 0 ? Math.round(group.mbLatency / group.mbCount) : 0;
 
         return {
             time: label,
             GoldRush: grVal,
-            Codex: cxVal
+            Codex: cxVal,
+            Mobula: mbVal
         };
     });
 
@@ -520,6 +554,9 @@ const AvgLatencyBarChart = ({ history, icon: Icon }) => {
                         {visibleProviders.includes('codex') && (
                             <Bar dataKey="Codex" fill="#3b82f6" radius={[2, 2, 0, 0]} />
                         )}
+                        {visibleProviders.includes('mobula') && (
+                            <Bar dataKey="Mobula" fill="#22c55e" radius={[2, 2, 0, 0]} />
+                        )}
                     </BarChart>
                 </ResponsiveContainer>
             </div>
@@ -542,10 +579,11 @@ function StatsPage({ onBack }) {
     const [error, setError] = useState(null);
 
     // Live Log Terminal State
-    const [logs, setLogs] = useState({ goldrush: [], codex: [] });
+    const [logs, setLogs] = useState({ goldrush: [], codex: [], mobula: [] });
     const [isPaused, setIsPaused] = useState(false);
     const grLogRef = useRef(null);
     const cxLogRef = useRef(null);
+    const mbLogRef = useRef(null);
 
     // Fetch stats and metrics history
     const fetchData = async () => {
@@ -596,7 +634,7 @@ function StatsPage({ onBack }) {
                         }));
                     }
                 } else if (data.type === 'RESET') {
-                    setLogs({ goldrush: [], codex: [] });
+                    setLogs({ goldrush: [], codex: [], mobula: [] });
                 }
             } catch (e) {
                 // Ignore parse errors
@@ -614,6 +652,7 @@ function StatsPage({ onBack }) {
         if (!isPaused) {
             if (grLogRef.current) grLogRef.current.scrollTop = grLogRef.current.scrollHeight;
             if (cxLogRef.current) cxLogRef.current.scrollTop = cxLogRef.current.scrollHeight;
+            if (mbLogRef.current) mbLogRef.current.scrollTop = mbLogRef.current.scrollHeight;
         }
     }, [logs, isPaused]);
 
@@ -682,7 +721,7 @@ function StatsPage({ onBack }) {
                         </button>
                         <button
                             className="log-btn clear"
-                            onClick={() => setLogs({ goldrush: [], codex: [] })}
+                            onClick={() => setLogs({ goldrush: [], codex: [], mobula: [] })}
                         >
                             🗑 Clear
                         </button>
@@ -713,12 +752,28 @@ function StatsPage({ onBack }) {
                                         #{log.eventNum} {log.eventType}
                                         {log.eventType === 'RESTART' && <span className="log-details"> {log.details}</span>}
                                     </span>
-                                    <span className="log-time">{new Date(log.timestamp * 1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                                    <span className="log-time">{new Date(log.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                                 </div>
                             ))}
                             {logs.codex.length === 0 && <div className="log-empty">Waiting for events...</div>}
                         </div>
                     </div>
+                    <div className="log-column">
+                        <div className="log-column-header mobula">Mobula ({logs.mobula.length})</div>
+                        <div className="log-content" ref={mbLogRef}>
+                            {logs.mobula.map((log, i) => (
+                                <div key={log.id || `mb-${i}`} className={`log-entry mobula ${log.eventType === 'RESTART' ? 'system-log' : ''}`}>
+                                    <span className="log-event">
+                                        #{log.eventNum} {log.eventType}
+                                        {log.eventType === 'RESTART' && <span className="log-details"> {log.details}</span>}
+                                    </span>
+                                    <span className="log-time">{new Date(log.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                                </div>
+                            ))}
+                            {logs.mobula.length === 0 && <div className="log-empty">Waiting for events...</div>}
+                        </div>
+                    </div>
+
                 </div>
             </div>
 
@@ -1138,7 +1193,7 @@ function StatsPage({ onBack }) {
                 
                 .log-columns {
                     display: grid;
-                    grid-template-columns: 1fr 1fr;
+                    grid-template-columns: 1fr 1fr 1fr;
                     gap: 0;
                 }
                 
@@ -1164,6 +1219,10 @@ function StatsPage({ onBack }) {
                 
                 .log-column-header.codex {
                     color: #3b82f6;
+                }
+                
+                .log-column-header.mobula {
+                    color: #22c55e;
                 }
                 
                 .log-content {
@@ -1204,6 +1263,10 @@ function StatsPage({ onBack }) {
                     color: #3b82f6;
                 }
                 
+                .log-entry.mobula .log-event {
+                    color: #22c55e;
+                }
+                
                 .log-event {
                     font-weight: 600;
                 }
@@ -1235,7 +1298,7 @@ function StatsPage({ onBack }) {
                     }
                 }
             `}</style>
-        </div>
+        </div >
     );
 }
 

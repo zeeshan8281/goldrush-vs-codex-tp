@@ -11,32 +11,38 @@ const RollingStats = require('./utils/stats');
 
 const grStats = new RollingStats();
 const cxStats = new RollingStats();
+const mbStats = new RollingStats();
 
 // Global Interval Buckets for Raw Jitter (Reset every 5s)
 let intervalLatencies = {
     goldrush: [],
-    codex: []
+    codex: [],
+    mobula: []
 };
 
 // Per-Interval Event Counters (Reset every 5s snapshot)
 let intervalEvents = {
     goldrush: 0,
-    codex: 0
+    codex: 0,
+    mobula: 0
 };
 
 // Carry-Forward Stats (Prevent 0-flicker)
 let lastIntervalStats = {
     goldrush: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 },
-    codex: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 }
+    codex: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 },
+    mobula: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 }
 };
 
 // Track last value of previous interval for Delta calculation
 let lastIntervalEndVal = {
     goldrush: 0,
-    codex: 0
+    codex: 0,
+    mobula: 0
 };
 
 let codexLatestStats = { p50: 0, p95: 0, jitter: 0 };
+let mobulaLatestStats = { p50: 0, p95: 0, jitter: 0 };
 
 global.getSymbol = () => SYMBOL;
 
@@ -88,17 +94,27 @@ let pairs = {
 // Store OHLCV candle arrays for charts (independent)
 let goldrushCandles = [];
 let codexCandles = [];
+let mobulaCandles = [];
 
 let clients = new Set();
 let isRunning = true;
 let streamsStartTime = 0; // Global start time for fair comparison
+
+// Log history buffer (replayed to new clients)
+let logHistory = {
+    goldrush: [],
+    codex: [],
+    mobula: []
+};
 
 // Event counters for numbered logging
 let eventCounters = {
     goldrushOHLCV: 0,
     goldrush: 0,
     codex: 0,
-    codexBars: 0
+    codexBars: 0,
+    mobula: 0,
+    mobulaOHLCV: 0
 };
 
 // --- SERVER SETUP ---
@@ -138,6 +154,7 @@ app.post('/update-token', async (req, res) => {
         pairs = { [SYMBOL]: { price: 0, fastPrice: 0, slowPrice: 0 } };
         goldrushCandles = [];
         codexCandles = [];
+        mobulaCandles = [];
 
         performanceHistory = []; // Reset history on token switch
 
@@ -145,23 +162,26 @@ app.post('/update-token', async (req, res) => {
 
         // Reset Metrics & Stats
         metricsHistory = [];
-        throughputCounters = { goldrush: 0, codex: 0 };
-        currentThroughput = { goldrush: 0, codex: 0 };
-        throughputHistory = { goldrush: [], codex: [] };
-        avgCandlesPerSecond = { goldrush: 0, codex: 0 };
+        throughputCounters = { goldrush: 0, codex: 0, mobula: 0 };
+        currentThroughput = { goldrush: 0, codex: 0, mobula: 0 };
+        throughputHistory = { goldrush: [], codex: [], mobula: [] };
+        avgCandlesPerSecond = { goldrush: 0, codex: 0, mobula: 0 };
 
         latencyStats = {
             goldrush: { sum: 0, count: 0 },
-            codex: { sum: 0, count: 0 }
+            codex: { sum: 0, count: 0 },
+            mobula: { sum: 0, count: 0 }
         };
 
         // Reset Rolling Stats (Fixes stale P95/Jitter)
         grStats.reset();
         cxStats.reset();
+        mbStats.reset();
 
         latency300 = {
             goldrush: { samples: [], sum: 0 },
-            codex: { samples: [], sum: 0 }
+            codex: { samples: [], sum: 0 },
+            mobula: { samples: [], sum: 0 }
         };
 
         connectionMetrics = {
@@ -180,41 +200,64 @@ app.post('/update-token', async (req, res) => {
                 connects: 0,
                 errors: 0,
                 lastError: null
+            },
+            mobula: {
+                ringBufferStart: 0,
+                ringBufferTTFD: 0,
+                ringBufferReceived: false,
+                liveDataStart: 0,
+                liveDataTTFD: 0,
+                connects: 0,
+                errors: 0,
+                lastError: null
             }
         };
 
         // Reset Event Counters
-        eventCounters = { goldrush: 0, codex: 0, goldrushOHLCV: 0, codexBars: 0 };
+        eventCounters = { goldrush: 0, codex: 0, mobula: 0, goldrushOHLCV: 0, codexBars: 0, mobulaOHLCV: 0 };
 
         latencyDelta = {
             goldrush: { prevLatency: null, deltas: [], sum: 0 },
-            codex: { prevLatency: null, deltas: [], sum: 0 }
+            codex: { prevLatency: null, deltas: [], sum: 0 },
+            mobula: { prevLatency: null, deltas: [], sum: 0 }
         };
 
         // Reset Global Interval Buckets
         intervalLatencies = {
             goldrush: [],
-            codex: []
+            codex: [],
+            mobula: []
         };
 
         // Reset Per-Interval Event Counters
         intervalEvents = {
             goldrush: 0,
-            codex: 0
+            codex: 0,
+            mobula: 0
+        };
+
+        // Reset Log History
+        logHistory = {
+            goldrush: [],
+            codex: [],
+            mobula: []
         };
 
         // Reset Carry-Forward Stats
         lastIntervalStats = {
             goldrush: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 },
-            codex: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 }
+            codex: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 },
+            mobula: { p50: 0, p95: 0, p99: 0, jitter: 0, stdDev: 0, eventCount: 0 }
         };
 
         lastIntervalEndVal = {
             goldrush: 0,
-            codex: 0
+            codex: 0,
+            mobula: 0
         };
 
         codexLatestStats = { p50: 0, p95: 0, jitter: 0 };
+        mobulaLatestStats = { p50: 0, p95: 0, jitter: 0 };
 
         // Reset Timestamps for fair comparison restart
         streamsStartTime = Date.now();
@@ -285,20 +328,22 @@ app.post('/api/timeframe', (req, res) => {
 
 // --- THROUGHPUT TRACKING (Hz) ---
 // Count updates per second
-let throughputCounters = { goldrush: 0, codex: 0 };
-let currentThroughput = { goldrush: 0, codex: 0 };
-let throughputHistory = { goldrush: [], codex: [] };
-let avgCandlesPerSecond = { goldrush: 0, codex: 0 };
+let throughputCounters = { goldrush: 0, codex: 0, mobula: 0 };
+let currentThroughput = { goldrush: 0, codex: 0, mobula: 0 };
+let throughputHistory = { goldrush: [], codex: [], mobula: [] };
+let avgCandlesPerSecond = { goldrush: 0, codex: 0, mobula: 0 };
 
 let latencyStats = {
     goldrush: { sum: 0, count: 0 },
-    codex: { sum: 0, count: 0 }
+    codex: { sum: 0, count: 0 },
+    mobula: { sum: 0, count: 0 }
 };
 
 // Rolling latency over last 300 candles per provider
 let latency300 = {
     goldrush: { samples: [], sum: 0 },
-    codex: { samples: [], sum: 0 }
+    codex: { samples: [], sum: 0 },
+    mobula: { samples: [], sum: 0 }
 };
 
 // --- METRICS HISTORY FOR COMPARISON CHARTS ---
@@ -321,6 +366,13 @@ let connectionMetrics = {
         connects: 0,
         errors: 0,
         lastError: null
+    },
+    mobula: {
+        connectTime: 0,
+        liveDataTTFD: 0,
+        connects: 0,
+        errors: 0,
+        lastError: null
     }
 };
 
@@ -328,7 +380,8 @@ let connectionMetrics = {
 // Track previous latency and deltas for each provider
 let latencyDelta = {
     goldrush: { prevLatency: null, deltas: [], sum: 0 },
-    codex: { prevLatency: null, deltas: [], sum: 0 }
+    codex: { prevLatency: null, deltas: [], sum: 0 },
+    mobula: { prevLatency: null, deltas: [], sum: 0 }
 };
 
 const MAX_ACCEPTABLE_DELTA = 50000; // 50 seconds max delta for 0% stability
@@ -412,7 +465,7 @@ setInterval(() => {
     currentThroughput = { ...throughputCounters };
 
     // Update rolling history (last 60 seconds)
-    ['goldrush', 'codex'].forEach(p => {
+    ['goldrush', 'codex', 'mobula'].forEach(p => {
         throughputHistory[p].push(currentThroughput[p]);
         if (throughputHistory[p].length > 60) throughputHistory[p].shift();
 
@@ -423,7 +476,7 @@ setInterval(() => {
             : 0;
     });
 
-    throughputCounters = { goldrush: 0, codex: 0 };
+    throughputCounters = { goldrush: 0, codex: 0, mobula: 0 };
 
     if (isRunning) {
         broadcast({
@@ -437,7 +490,7 @@ setInterval(() => {
 }, 1000);
 
 // Store latest averages for the API
-let latestLatency = { goldrush: 0, codex: 0 };
+let latestLatency = { goldrush: 0, codex: 0, mobula: 0 };
 
 // Snapshot History every 5 seconds (Fast for testing, normally 1m or 10m)
 setInterval(() => {
@@ -455,14 +508,16 @@ setInterval(() => {
     // Calculate averages
     const grAvg = getAvg('goldrush');
     const cxAvg = getAvg('codex');
+    const mbAvg = getAvg('mobula');
 
     // Update global state for /stats
-    latestLatency = { goldrush: grAvg, codex: cxAvg };
+    latestLatency = { goldrush: grAvg, codex: cxAvg, mobula: mbAvg };
 
     const snapshot = {
         time: Date.now(),
         goldrush: { avgLatency: grAvg },
-        codex: { avgLatency: cxAvg }
+        codex: { avgLatency: cxAvg },
+        mobula: { avgLatency: mbAvg }
     };
 
     performanceHistory.push(snapshot);
@@ -472,6 +527,7 @@ setInterval(() => {
 
     // --- METRICS HISTORY SNAPSHOT (for comparison charts) ---
     const grCurrentStats = grStats.getStats();
+    const mbCurrentStats = mbStats.getStats();
 
     // Calculate Raw Jitter (Max Delta)
     // Use Max Delta (biggest jump) to show volatility even with low throughput
@@ -500,6 +556,10 @@ setInterval(() => {
         lastIntervalStats.codex.stdDev = calculateMaxIntervalDelta(intervalLatencies.codex, lastIntervalEndVal.codex);
         lastIntervalEndVal.codex = intervalLatencies.codex[intervalLatencies.codex.length - 1];
     }
+    if (intervalLatencies.mobula.length > 0) {
+        lastIntervalStats.mobula.stdDev = calculateMaxIntervalDelta(intervalLatencies.mobula, lastIntervalEndVal.mobula);
+        lastIntervalEndVal.mobula = intervalLatencies.mobula[intervalLatencies.mobula.length - 1];
+    }
 
     const metricsSnapshot = {
         time: Date.now(),
@@ -512,27 +572,41 @@ setInterval(() => {
             p95: grCurrentStats.p95,
             p99: grCurrentStats.p99,
             eventCount: grStats.samples?.length || 0,
-            intervalEventCount: intervalEvents.goldrush,  // Events in this 5s interval
+            intervalEventCount: intervalEvents.goldrush,  // Events in this 60s interval
             avgLatency: grAvg
         },
         codex: {
-            liveDataTTFD: connectionMetrics.codex.liveDataTTFD,     // onEventsCreated (real-time)
+            liveDataTTFD: connectionMetrics.codex.liveDataTTFD,     // onBarsUpdated (OHLCV)
             candlesPerSec: avgCandlesPerSecond.codex,
             jitter: codexLatestStats.jitter,            // Rolling Jitter (for Table)
             stdDev: lastIntervalStats.codex.stdDev,     // Max Delta (for Chart)
             p95: codexLatestStats.p95,
             p99: codexLatestStats.p99,
             eventCount: cxStats.samples?.length || 0,
-            intervalEventCount: intervalEvents.codex,    // Events in this 5s interval
+            intervalEventCount: intervalEvents.codex,    // Events in this 60s interval
             avgLatency: cxAvg
+        },
+        mobula: {
+            ringBufferTTFD: 0, // Mobula has no ring buffer
+            liveDataTTFD: connectionMetrics.mobula.liveDataTTFD,
+            candlesPerSec: avgCandlesPerSecond.mobula,
+            jitter: mbCurrentStats.jitter,
+            stdDev: lastIntervalStats.mobula.stdDev,
+            p95: mbCurrentStats.p95,
+            p99: mbCurrentStats.p99,
+            eventCount: mbStats.samples?.length || 0,
+            intervalEventCount: intervalEvents.mobula,
+            avgLatency: mbAvg
         }
     };
 
     // Reset Interval Buckets for next snapshot
     intervalLatencies.goldrush = [];
     intervalLatencies.codex = [];
+    intervalLatencies.mobula = [];
     intervalEvents.goldrush = 0;
     intervalEvents.codex = 0;
+    intervalEvents.mobula = 0;
 
     metricsHistory.push(metricsSnapshot);
     if (metricsHistory.length > 60) metricsHistory.shift(); // Keep last 60 min (60 * 60s = 3600s = 1hr)
@@ -558,15 +632,29 @@ app.get('/stats', (req, res) => {
         throughput: currentThroughput,
         candlesPerMinute: {
             goldrush: currentThroughput.goldrush * 60,
-            codex: currentThroughput.codex * 60
+            codex: currentThroughput.codex * 60,
+            mobula: currentThroughput.mobula * 60
         },
         latencyRace: {
             goldrush: { avgLatency: latestLatency.goldrush },
-            codex: { avgLatency: latestLatency.codex }
+            codex: { avgLatency: latestLatency.codex },
+            mobula: { avgLatency: latestLatency.mobula }
         },
         avgLatency300: {
             goldrush: getAvgLatency300('goldrush'),
-            codex: getAvgLatency300('codex')
+            codex: getAvgLatency300('codex'),
+            mobula: getAvgLatency300('mobula')
+        },
+        // Jitter & P99 calculated from rolling stats
+        jitter: {
+            goldrush: grStats.getStats().jitter,
+            codex: codexLatestStats.jitter,
+            mobula: mbStats.getStats().jitter
+        },
+        p99: {
+            goldrush: grStats.getStats().p99,
+            codex: codexLatestStats.p99,
+            mobula: mbStats.getStats().p99
         }
     });
 });
@@ -587,6 +675,12 @@ app.get('/metrics-history', (req, res) => {
                 candlesPerSec: avgCandlesPerSecond.codex,
                 latencyVariance: getAvgDelta('codex'),
                 latency300: getAvgLatency300('codex')
+            },
+            mobula: {
+                loadTime: connectionMetrics.mobula.loadTime,
+                candlesPerSec: avgCandlesPerSecond.mobula,
+                latencyVariance: getAvgDelta('mobula'),
+                latency300: getAvgLatency300('mobula')
             }
         }
     });
@@ -599,6 +693,18 @@ const wss = new WebSocket.Server({ server });
 function broadcast(msg) {
     if (!isRunning) return;
     const data = JSON.stringify(msg);
+
+    // Store LOG_EVENT in history for replay to new clients
+    if (msg.type === 'LOG_EVENT' && msg.provider) {
+        const maxLogs = 100; // Keep last 100 logs per provider
+        if (logHistory[msg.provider]) {
+            logHistory[msg.provider].push(msg);
+            if (logHistory[msg.provider].length > maxLogs) {
+                logHistory[msg.provider].shift();
+            }
+        }
+    }
+
     clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             client.send(data);
@@ -732,12 +838,19 @@ function startCodexSubscription() {
     connectionMetrics.codex.liveDataStart = Date.now(); // TTFD timer starts here
     connectionMetrics.codex.connects++;
 
-    // Raw graphql-ws connection (NO SDK)
+    // Raw graphql-ws connection (NO SDK) with AUTO-RECONNECTION
     const codexWsClient = createClient({
         url: 'wss://graph.codex.io/graphql',
         webSocketImpl: WebSocket,
         connectionParams: {
             Authorization: process.env.CODEX_API_KEY
+        },
+        retryAttempts: Infinity,  // Keep retrying forever
+        shouldRetry: () => true,  // Always retry on close
+        retry: async (retries) => {
+            const delay = Math.min(1000 * Math.pow(2, retries), 30000); // Exponential backoff, max 30s
+            console.log(`🔄 Codex Events reconnecting in ${delay / 1000}s (attempt ${retries + 1})...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
         },
         on: {
             connected: () => {
@@ -748,7 +861,8 @@ function startCodexSubscription() {
                 console.error('❌ Codex WS Error:', err);
                 connectionMetrics.codex.errors++;
                 connectionMetrics.codex.lastError = Date.now();
-            }
+            },
+            closed: () => console.log('📴 Codex Events Stream Disconnected - will auto-reconnect')
         }
     });
 
@@ -790,12 +904,7 @@ function startCodexSubscription() {
             next: (result) => {
                 const events = result?.data?.onEventsCreated?.events;
                 if (events && events.length > 0) {
-                    // Track first data load time (WS Connection -> First Packet)
-                    if (connectionMetrics.codex.liveDataTTFD === 0) {
-                        connectionMetrics.codex.liveDataTTFD = Date.now() - connectionMetrics.codex.liveDataStart;
-                        const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
-                        console.log(`[${timeStr}] [CODEX] LIVE DATA    | First event | TTFD: ${connectionMetrics.codex.liveDataTTFD}ms`);
-                    }
+                    // TTFD NOT calculated here - uses onBarsUpdated (OHLCV) instead
                     processCodexEvents(events);
                 }
             },
@@ -816,9 +925,17 @@ function startCodexSubscription() {
         connectionParams: {
             Authorization: process.env.CODEX_API_KEY
         },
+        retryAttempts: Infinity,
+        shouldRetry: () => true,
+        retry: async (retries) => {
+            const delay = Math.min(1000 * Math.pow(2, retries), 30000);
+            console.log(`🔄 Codex Bars reconnecting in ${delay / 1000}s (attempt ${retries + 1})...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        },
         on: {
             connected: () => console.log('✅ Connected to Codex onBarsUpdated Stream!'),
-            error: (err) => console.error('❌ Codex Bars WS Error:', err)
+            error: (err) => console.error('❌ Codex Bars WS Error:', err),
+            closed: () => console.log('📴 Codex Bars Stream Disconnected - will auto-reconnect')
         }
     });
 
@@ -857,6 +974,13 @@ function startCodexSubscription() {
                 if (bar && bar.aggregates?.r1?.usd) {
                     countUpdate('codex');
 
+                    // TTFD on first bar update (OHLCV candle)
+                    if (connectionMetrics.codex.liveDataTTFD === 0) {
+                        connectionMetrics.codex.liveDataTTFD = Date.now() - connectionMetrics.codex.liveDataStart;
+                        const ttfdTimeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+                        console.log(`[${ttfdTimeStr}] [CODEX] LIVE DATA    | First onBarsUpdated | TTFD: ${connectionMetrics.codex.liveDataTTFD}ms`);
+                    }
+
                     // Latency: now - bar timestamp (Unix seconds)
                     const barTimeMs = bar.timestamp * 1000;
                     const latency = now - barTimeMs;
@@ -894,7 +1018,7 @@ function startCodexSubscription() {
                             eventNum: eventCounters.codexBars,
                             eventType: 'onBarsUpdated',
                             time: timeStr,
-                            timestamp: bar.timestamp,
+                            timestamp: bar.timestamp * 1000,
                             o: agg?.o?.toFixed(4),
                             h: agg?.h?.toFixed(4),
                             l: agg?.l?.toFixed(4),
@@ -1045,12 +1169,19 @@ function startStream() {
     console.log(`🚀 Starting GoldRush OHLCV Pairs Stream on: ${CURRENT_CHAIN}`);
     connectionMetrics.goldrush.ringBufferStart = Date.now(); // Start timer for Ring Buffer TTFD
 
-    // Use graphql-ws for raw GraphQL subscription (NO SDK)
+    // Use graphql-ws for raw GraphQL subscription (NO SDK) with AUTO-RECONNECTION
     const grWsClient = createClient({
         url: 'wss://gr-staging-v2.streaming.covalenthq.com/graphql',
         webSocketImpl: WebSocket,
         connectionParams: {
             GOLDRUSH_API_KEY: process.env.COVALENT_API_KEY
+        },
+        retryAttempts: Infinity,  // Keep retrying forever
+        shouldRetry: () => true,  // Always retry on close
+        retry: async (retries) => {
+            const delay = Math.min(1000 * Math.pow(2, retries), 30000);
+            console.log(`🔄 GoldRush OHLCV reconnecting in ${delay / 1000}s (attempt ${retries + 1})...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
         },
         on: {
             connected: () => {
@@ -1062,7 +1193,7 @@ function startStream() {
                 connectionMetrics.goldrush.errors++;
                 connectionMetrics.goldrush.lastError = Date.now();
             },
-            closed: () => console.log('📴 GoldRush OHLCV Stream Disconnected')
+            closed: () => console.log('📴 GoldRush OHLCV Stream Disconnected - will auto-reconnect')
         }
     });
 
@@ -1123,7 +1254,9 @@ function startStream() {
                             connectionMetrics.goldrush.ringBufferTTFD = Date.now() - connectionMetrics.goldrush.ringBufferStart;
                         }
 
-                        connectionMetrics.goldrush.liveDataTTFD = Date.now() - connectionMetrics.goldrush.ringBufferStart;
+                        if (connectionMetrics.goldrush.liveDataTTFD === 0) {
+                            connectionMetrics.goldrush.liveDataTTFD = Date.now() - connectionMetrics.goldrush.ringBufferStart;
+                        }
                         console.log(`[${timeStr}] [GOLDRUSH] RING BUFFER  | Skipped/Complete | TTFD: ${connectionMetrics.goldrush.ringBufferTTFD}ms`);
                         console.log(`[${timeStr}] [GOLDRUSH] LIVE DATA    | First candle | TTFD: ${connectionMetrics.goldrush.liveDataTTFD}ms`);
                     }
@@ -1150,12 +1283,19 @@ function startStream() {
         connectionParams: {
             GOLDRUSH_API_KEY: process.env.COVALENT_API_KEY
         },
+        retryAttempts: Infinity,
+        shouldRetry: () => true,
+        retry: async (retries) => {
+            const delay = Math.min(1000 * Math.pow(2, retries), 30000);
+            console.log(`🔄 GoldRush updatePairs reconnecting in ${delay / 1000}s (attempt ${retries + 1})...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        },
         on: {
             connected: () => {
                 console.log('✅ Connected to GoldRush updatePairs Stream!');
             },
             error: (err) => console.error('❌ GoldRush UpdatePairs WS Error:', err),
-            closed: () => console.log('📴 GoldRush updatePairs Stream Disconnected')
+            closed: () => console.log('📴 GoldRush updatePairs Stream Disconnected - will auto-reconnect')
         }
     });
 
@@ -1184,6 +1324,12 @@ function startStream() {
                 // Calculate Latency
                 const eventTime = new Date(update.timestamp).getTime();
                 const latency = Date.now() - eventTime;
+
+                // [FIX] Calculate Live Data TTFD on first tick (instead of waiting for next candle)
+                if (connectionMetrics.goldrush.liveDataTTFD === 0) {
+                    connectionMetrics.goldrush.liveDataTTFD = Date.now() - connectionMetrics.goldrush.ringBufferStart;
+                    console.log(`[${timeStr}] [GOLDRUSH] LIVE DATA    | First tick | TTFD: ${connectionMetrics.goldrush.liveDataTTFD}ms`);
+                }
 
                 // Log uniformed format
                 console.log(`[${timeStr}] [GOLDRUSH] STREAM     | Tick received | Price: $${update.quote_rate_usd?.toFixed(2)} | Latency: ${latency}ms | Timestamp: ${update.timestamp}`);
@@ -1299,7 +1445,143 @@ function processGoldrushOHLCV(candles) {
     });
 }
 
-// --- INITIALIZATION ---
+function startMobulaStream() {
+    console.log("🔌 Connecting to Mobula WebSocket...");
+    const ws = new WebSocket('wss://api.mobula.io');
+
+    ws.on('open', () => {
+        console.log("✅ Mobula WS Connected");
+        connectionMetrics.mobula.connects++;
+        connectionMetrics.mobula.connectTime = Date.now();
+        connectionMetrics.mobula.ringBufferStart = Date.now();
+
+        // Determine Chain ID (Mobula uses 'solana' or 'evm:ID')
+        const chainId = CURRENT_CHAIN === 'SOLANA_MAINNET' ? 'solana' : 'evm:' + CODEX_NETWORK_ID;
+        console.log(`Mobula Params: Address=${PAIR_ADDRESS} Chain=${chainId}`);
+
+        // Subscribe OHLCV (Pair Mode)
+        const ohlcvMsg = {
+            type: "ohlcv",
+            authorization: process.env.MOBULA_API_KEY,
+            payload: {
+                address: PAIR_ADDRESS,
+                chainId: chainId,
+                period: "1m"
+            }
+        };
+        ws.send(JSON.stringify(ohlcvMsg));
+        console.log(`📤 Mobula OHLCV Sub: Pair ${PAIR_ADDRESS} on ${chainId}`);
+
+        // Subscribe Market Details (Trades)
+        const marketMsg = {
+            type: "market-details",
+            authorization: process.env.MOBULA_API_KEY,
+            payload: {
+                pools: [
+                    {
+                        address: PAIR_ADDRESS,
+                        blockchain: chainId
+                    }
+                ],
+                subscriptionTracking: true
+            }
+        };
+        ws.send(JSON.stringify(marketMsg));
+        console.log(`📤 Mobula Market Details Sub`);
+    });
+
+    ws.on('message', (data) => {
+        try {
+            const msg = JSON.parse(data);
+            const now = Date.now();
+
+            // Handle Market Details (Trades) for EVENT COUNTING + LATENCY
+            // Trade structure: { date, token_price, type, hash, ... }
+            if (msg.date && msg.token_price !== undefined) {
+                // This is a trade event from market-details stream
+                eventCounters.mobulaOHLCV++;  // Reuse counter for display consistency
+
+                // Calculate latency from trade timestamp
+                const tradeTime = msg.date; // Unix milliseconds
+                const latency = now - tradeTime;
+
+                countUpdate('mobula');
+
+                // Update latency stats for getAvg() calculation
+                latencyStats.mobula.sum += latency;
+                latencyStats.mobula.count++;
+
+                mbStats.add(latency);
+                intervalLatencies.mobula.push(latency);
+                intervalEvents.mobula++;
+
+                // Trade handled - TTFD NOT calculated here (uses OHLCV instead)
+
+                const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+                const tradeType = msg.type || 'unknown'; // 'buy' or 'sell'
+
+                const logMsg = {
+                    id: `mb-trade-${now}-${eventCounters.mobulaOHLCV}`,
+                    eventNum: eventCounters.mobulaOHLCV,
+                    timestamp: now,
+                    time: timeStr,
+                    latency: latency,
+                    eventType: 'trade',
+                    price: msg.token_price || 0,
+                    details: tradeType
+                };
+                broadcast({ type: 'LOG_EVENT', provider: 'mobula', data: logMsg });
+                console.log(`[${timeStr}] [MOBULA] Trade #${eventCounters.mobulaOHLCV} | ${tradeType.toUpperCase()} | Price: $${msg.token_price?.toFixed(4)} | Latency: ${latency}ms`);
+                return; // Trade handled
+            }
+
+            // Snapshot does NOT trigger TTFD - only OHLCV does
+
+            // Handle OHLCV Updates (Candle - BUFFER + TTFD calculation)
+            if (msg.open && msg.close && msg.time) {
+                // TTFD on first OHLCV candle
+                if (connectionMetrics.mobula.liveDataTTFD === 0) {
+                    connectionMetrics.mobula.liveDataTTFD = Date.now() - connectionMetrics.mobula.connectTime;
+                    const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+                    console.log(`[${timeStr}] [MOBULA] LIVE DATA    | First OHLCV candle | TTFD: ${connectionMetrics.mobula.liveDataTTFD}ms`);
+                }
+
+                // Update candle buffer for charts
+                const candleTime = msg.time;
+                const lastCandle = mobulaCandles[mobulaCandles.length - 1];
+                if (lastCandle && lastCandle.time === candleTime) {
+                    mobulaCandles[mobulaCandles.length - 1] = msg;
+                } else {
+                    mobulaCandles.push(msg);
+                    if (mobulaCandles.length > 500) mobulaCandles.shift();
+                }
+                return;
+            }
+
+            /*
+             * DISABLED: User requested Aggregated Bars (Candles) only for metrics.
+             * Raw trades are displayed in debug logs but not counted towards main stats
+             * to align with GoldRush/Codex aggregated behavior.
+             */
+            // if (msg.data || (msg.pair && msg.date)) { ... }
+
+        } catch (err) {
+            console.error("Mobula Msg Parse Error:", err);
+        }
+    });
+
+    ws.on('error', (err) => {
+        console.error("❌ Mobula WS Error:", err.message);
+        connectionMetrics.mobula.errors++;
+        connectionMetrics.mobula.lastError = err.message;
+    });
+
+    ws.on('close', () => {
+        console.warn("⚠️ Mobula WS Closed. Reconnecting in 5s...");
+        setTimeout(startMobulaStream, 5000);
+    });
+}
+
 server.listen(PORT, async () => {
     console.log(`🚀 Server Starting (${CURRENT_CHAIN} - ${SYMBOL})...`);
 
@@ -1315,6 +1597,7 @@ server.listen(PORT, async () => {
     try {
         streamsStartTime = Date.now(); // Set global start time for all streams
         startStream(); // GoldRush
+        startMobulaStream(); // Mobula
         await initCodexProvider(); // Codex
     } catch (err) {
         console.error("❌ Stats Server Init Error:", err);
@@ -1359,10 +1642,16 @@ wss.on('connection', (ws) => {
         }));
     }
 
-
-
-
-
+    // Send log history to new clients
+    for (const logEvent of logHistory.goldrush) {
+        ws.send(JSON.stringify(logEvent));
+    }
+    for (const logEvent of logHistory.codex) {
+        ws.send(JSON.stringify(logEvent));
+    }
+    for (const logEvent of logHistory.mobula) {
+        ws.send(JSON.stringify(logEvent));
+    }
 
     ws.on('close', () => clients.delete(ws));
 });
