@@ -334,43 +334,22 @@ const CandlesPerIntervalChart = ({ history, icon: Icon }) => {
         );
     };
 
-    // Transform history data for Recharts grouped bar format
-    // Aggregate 5s snapshots into 1-minute bins
-    // history contains ~60 items (last 5 mins at 5s intervals)
+    // Each snapshot is now 1 minute - map directly to chart data
+    // Filter to last 15 minutes only
+    const fifteenMinAgo = Date.now() - (15 * 60 * 1000);
+    const recentHistory = history?.filter(h => h.time > fifteenMinAgo) || [];
 
-    // Group by 5-Minute Label (HH:MM)
-    const groupedData = history?.reduce((acc, h) => {
+    // Map snapshots directly to chart data (no grouping needed - each snapshot = 1 minute)
+    const chartData = recentHistory.map(h => {
         const time = new Date(h.time);
-        // Round to nearest 5 minutes
-        const minutes = Math.floor(time.getMinutes() / 5) * 5;
-        time.setMinutes(minutes);
-        time.setSeconds(0);
-
         const label = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-
-        if (!acc[label]) {
-            acc[label] = { grRate: 0, cxRate: 0, count: 0 };
-        }
-
-        acc[label].grRate += (h.goldrush?.candlesPerSec || 0);
-        acc[label].cxRate += (h.codex?.candlesPerSec || 0);
-        acc[label].count += 1;
-
-        return acc;
-    }, {}) || {};
-
-    const chartData = Object.keys(groupedData).map(label => {
-        const group = groupedData[label];
-        // Average Rate * 300 = Estimated Events per 5 Minutes
-        const grVal = Math.round((group.grRate / group.count) * 300);
-        const cxVal = Math.round((group.cxRate / group.count) * 300);
 
         return {
             time: label,
-            GoldRush: grVal,
-            Codex: cxVal
+            GoldRush: h.goldrush?.intervalEventCount || 0,
+            Codex: h.codex?.intervalEventCount || 0
         };
-    }); // Keys (time) are naturally sorted if history is chronological
+    });
 
     return (
         <div className="comparison-chart">
@@ -449,13 +428,16 @@ const AvgLatencyBarChart = ({ history, icon: Icon }) => {
         );
     };
 
-    // Aggregate latency data into 5-minute bins
-    const groupedData = history?.reduce((acc, h) => {
+    // Aggregate latency data into 1-minute bins (matching candle interval)
+    // Filter to last 15 minutes only
+    const fifteenMinAgo = Date.now() - (15 * 60 * 1000);
+    const recentHistory = history?.filter(h => h.time > fifteenMinAgo) || [];
+
+    const groupedData = recentHistory.reduce((acc, h) => {
         const time = new Date(h.time);
-        // Round to nearest 5 minutes
-        const minutes = Math.floor(time.getMinutes() / 5) * 5;
-        time.setMinutes(minutes);
+        // Round to nearest 1 minute
         time.setSeconds(0);
+        time.setMilliseconds(0);
 
         const label = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -478,7 +460,7 @@ const AvgLatencyBarChart = ({ history, icon: Icon }) => {
 
     const chartData = Object.keys(groupedData).map(label => {
         const group = groupedData[label];
-        // Calculate average latency for the 5-minute bin
+        // Calculate average latency for the 1-minute bin
         const grVal = group.grCount > 0 ? Math.round(group.grLatency / group.grCount) : 0;
         const cxVal = group.cxCount > 0 ? Math.round(group.cxLatency / group.cxCount) : 0;
 

@@ -12,10 +12,16 @@ const RollingStats = require('./utils/stats');
 const grStats = new RollingStats();
 const cxStats = new RollingStats();
 
-// Globa Interval Buckets for Raw Jitter (Reset every 5s)
+// Global Interval Buckets for Raw Jitter (Reset every 5s)
 let intervalLatencies = {
     goldrush: [],
     codex: []
+};
+
+// Per-Interval Event Counters (Reset every 5s snapshot)
+let intervalEvents = {
+    goldrush: 0,
+    codex: 0
 };
 
 // Carry-Forward Stats (Prevent 0-flicker)
@@ -189,6 +195,12 @@ app.post('/update-token', async (req, res) => {
         intervalLatencies = {
             goldrush: [],
             codex: []
+        };
+
+        // Reset Per-Interval Event Counters
+        intervalEvents = {
+            goldrush: 0,
+            codex: 0
         };
 
         // Reset Carry-Forward Stats
@@ -500,6 +512,7 @@ setInterval(() => {
             p95: grCurrentStats.p95,
             p99: grCurrentStats.p99,
             eventCount: grStats.samples?.length || 0,
+            intervalEventCount: intervalEvents.goldrush,  // Events in this 5s interval
             avgLatency: grAvg
         },
         codex: {
@@ -510,6 +523,7 @@ setInterval(() => {
             p95: codexLatestStats.p95,
             p99: codexLatestStats.p99,
             eventCount: cxStats.samples?.length || 0,
+            intervalEventCount: intervalEvents.codex,    // Events in this 5s interval
             avgLatency: cxAvg
         }
     };
@@ -517,10 +531,12 @@ setInterval(() => {
     // Reset Interval Buckets for next snapshot
     intervalLatencies.goldrush = [];
     intervalLatencies.codex = [];
+    intervalEvents.goldrush = 0;
+    intervalEvents.codex = 0;
 
     metricsHistory.push(metricsSnapshot);
-    if (metricsHistory.length > 720) metricsHistory.shift(); // Keep last 60 min (720 * 5s = 3600s = 1hr)
-}, 5000);
+    if (metricsHistory.length > 60) metricsHistory.shift(); // Keep last 60 min (60 * 60s = 3600s = 1hr)
+}, 60000); // 1-minute snapshots (matching candle interval)
 
 // Helper to increment throughput
 function countUpdate(provider) {
@@ -651,7 +667,7 @@ async function processGoldrushCandles(candles) {
     latestLatency.goldrush = goldRushLatency;
 
     logger.goldrush.stream(price, goldRushLatency, candles.length);
-    countUpdate('goldrush'); // Track Hz
+    // countUpdate('goldrush') removed - throughput now tracked only from updatePairs stream
 
 
     pairs[SYMBOL].price = price;
@@ -857,6 +873,7 @@ function startCodexSubscription() {
                     cxStats.add(latency);
                     const stats = cxStats.getStats();
                     codexLatestStats = stats;
+                    intervalEvents.codex++;  // Track events per interval
 
                     // Interval Push (Raw Jitter)
                     if (latency >= 0 && latency < 60000) intervalLatencies.codex.push(latency);
@@ -1222,8 +1239,10 @@ function processGoldrushUpdate(update) {
     console.log(`[${timeStr}] [GOLDRUSH] STREAM     | Tick received | Price: $${price} | Latency: ${latency}ms | Timestamp: ${update.timestamp}`);
 
     // Add to rolling stats for p50/p95/p99
+    // Note: updatePairs is a SEPARATE stream from OHLCV - no ring buffer concept here
     grStats.add(latency);
     latestLatency.goldrush = latency;
+    intervalEvents.goldrush++;  // Track events per interval
 
     // Interval Push (Raw Jitter)
     intervalLatencies.goldrush.push(latency);
