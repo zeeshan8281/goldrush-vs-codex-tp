@@ -33,8 +33,6 @@ client.streams.on('error', (err) => {
 });
 
 async function run() {
-    console.log("Waiting for SDK init...");
-    await new Promise(r => setTimeout(r, 5000));
     console.log("Subscribing to Market Details...");
     try {
         await client.streams.subscribe({

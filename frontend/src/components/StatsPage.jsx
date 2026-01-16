@@ -585,7 +585,7 @@ function StatsPage({ onBack }) {
     const cxLogRef = useRef(null);
     const mbLogRef = useRef(null);
 
-    // Fetch stats and metrics history
+    // Fetch initial data via HTTP (once), then WebSocket takes over
     const fetchData = async () => {
         try {
             const [statsRes, metricsRes] = await Promise.all([
@@ -606,12 +606,10 @@ function StatsPage({ onBack }) {
     };
 
     useEffect(() => {
-        fetchData();
-        const interval = setInterval(fetchData, 5000); // Refresh every 5s
-        return () => clearInterval(interval);
+        fetchData(); // Initial fetch only - WebSocket handles real-time updates
     }, []);
 
-    // WebSocket for live logs
+    // WebSocket for live logs AND real-time stats
     const isPausedRef = useRef(isPaused);
     isPausedRef.current = isPaused; // Keep ref in sync with state
 
@@ -626,6 +624,22 @@ function StatsPage({ onBack }) {
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
+
+                // Handle real-time stats updates (replaces HTTP polling)
+                if (data.type === 'STATS_UPDATE') {
+                    setStats(prev => ({
+                        ...prev,
+                        uptime: data.data.uptime,
+                        throughput: data.data.throughput,
+                        avgLatency: data.data.avgLatency
+                    }));
+                    if (data.data.metricsHistory) {
+                        setMetricsHistory(data.data.metricsHistory);
+                    }
+                    setLoading(false);
+                }
+
+                // Handle log events
                 if (data.type === 'LOG_EVENT') {
                     if (!isPausedRef.current) {
                         setLogs(prev => ({

@@ -352,7 +352,8 @@ let latency300 = {
 // Codex: liveDataTTFD (onEventsCreated)
 let connectionMetrics = {
     goldrush: {
-        ringBufferStart: 0,       // When OHLCV stream connects
+        connectTime: 0,           // When OHLCV WS connects
+        ringBufferStart: 0,       // Legacy - kept for compatibility
         ringBufferTTFD: 0,        // Time until ALL initial buffer candles arrive
         ringBufferReceived: false,// Flag: has initial buffer been fully received?
         liveDataTTFD: 0,          // Time to first LIVE candle (after buffer)
@@ -361,8 +362,9 @@ let connectionMetrics = {
         lastError: null
     },
     codex: {
-        liveDataStart: 0,     // When onEventsCreated stream connects
-        liveDataTTFD: 0,      // Time to first onEventsCreated data (real-time events)
+        connectTime: 0,       // When onBarsUpdated WS connects
+        liveDataStart: 0,     // Legacy - kept for compatibility
+        liveDataTTFD: 0,      // Time to first onBarsUpdated data (OHLCV)
         connects: 0,
         errors: 0,
         lastError: null
@@ -525,6 +527,17 @@ setInterval(() => {
 
     broadcast({ type: 'HISTORY_UPDATE', data: performanceHistory });
 
+    // Broadcast full stats via WebSocket (replaces HTTP polling)
+    broadcast({
+        type: 'STATS_UPDATE',
+        data: {
+            uptime: Date.now() - startedAt,
+            throughput: currentThroughput,
+            avgLatency: { goldrush: grAvg, codex: cxAvg, mobula: mbAvg },
+            metricsHistory: metricsHistory
+        }
+    });
+
     // --- METRICS HISTORY SNAPSHOT (for comparison charts) ---
     const grCurrentStats = grStats.getStats();
     const mbCurrentStats = mbStats.getStats();
@@ -571,7 +584,7 @@ setInterval(() => {
             stdDev: lastIntervalStats.goldrush.stdDev,  // Max Delta (for Chart)
             p95: grCurrentStats.p95,
             p99: grCurrentStats.p99,
-            eventCount: grStats.samples?.length || 0,
+            eventCount: eventCounters.goldrush,  // Actual total events (not capped)
             intervalEventCount: intervalEvents.goldrush,  // Events in this 60s interval
             avgLatency: grAvg
         },
@@ -582,7 +595,7 @@ setInterval(() => {
             stdDev: lastIntervalStats.codex.stdDev,     // Max Delta (for Chart)
             p95: codexLatestStats.p95,
             p99: codexLatestStats.p99,
-            eventCount: cxStats.samples?.length || 0,
+            eventCount: eventCounters.codexBars,  // Actual total events (not capped)
             intervalEventCount: intervalEvents.codex,    // Events in this 60s interval
             avgLatency: cxAvg
         },
@@ -594,7 +607,7 @@ setInterval(() => {
             stdDev: lastIntervalStats.mobula.stdDev,
             p95: mbCurrentStats.p95,
             p99: mbCurrentStats.p99,
-            eventCount: mbStats.samples?.length || 0,
+            eventCount: eventCounters.mobulaOHLCV,  // Actual total events (not capped)
             intervalEventCount: intervalEvents.mobula,
             avgLatency: mbAvg
         }
@@ -835,7 +848,7 @@ function startCodexSubscription() {
     }
 
     console.log("🐢 Connecting to Codex GraphQL Stream (Events)...");
-    connectionMetrics.codex.liveDataStart = Date.now(); // TTFD timer starts here
+    // Timer will be set when WS connects (in 'connected' callback)
     connectionMetrics.codex.connects++;
 
     // Raw graphql-ws connection (NO SDK) with AUTO-RECONNECTION
@@ -854,8 +867,8 @@ function startCodexSubscription() {
         },
         on: {
             connected: () => {
-                const connectTime = Date.now() - connectionMetrics.codex.liveDataStart;
-                console.log(`✅ Connected to Codex GraphQL Stream! (Handshake: ${connectTime}ms)`);
+                connectionMetrics.codex.connectTime = Date.now(); // TTFD timer starts when Events WS connects
+                console.log(`✅ Connected to Codex GraphQL Stream!`);
             },
             error: (err) => {
                 console.error('❌ Codex WS Error:', err);
@@ -904,7 +917,12 @@ function startCodexSubscription() {
             next: (result) => {
                 const events = result?.data?.onEventsCreated?.events;
                 if (events && events.length > 0) {
-                    // TTFD NOT calculated here - uses onBarsUpdated (OHLCV) instead
+                    // TTFD on first onEventsCreated data
+                    if (connectionMetrics.codex.liveDataTTFD === 0) {
+                        connectionMetrics.codex.liveDataTTFD = Date.now() - connectionMetrics.codex.connectTime;
+                        const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+                        console.log(`[${timeStr}] [CODEX] LIVE DATA    | First onEventsCreated | TTFD: ${connectionMetrics.codex.liveDataTTFD}ms`);
+                    }
                     processCodexEvents(events);
                 }
             },
@@ -933,7 +951,9 @@ function startCodexSubscription() {
             await new Promise(resolve => setTimeout(resolve, delay));
         },
         on: {
-            connected: () => console.log('✅ Connected to Codex onBarsUpdated Stream!'),
+            connected: () => {
+                console.log('✅ Connected to Codex onBarsUpdated Stream!');
+            },
             error: (err) => console.error('❌ Codex Bars WS Error:', err),
             closed: () => console.log('📴 Codex Bars Stream Disconnected - will auto-reconnect')
         }
@@ -974,12 +994,7 @@ function startCodexSubscription() {
                 if (bar && bar.aggregates?.r1?.usd) {
                     countUpdate('codex');
 
-                    // TTFD on first bar update (OHLCV candle)
-                    if (connectionMetrics.codex.liveDataTTFD === 0) {
-                        connectionMetrics.codex.liveDataTTFD = Date.now() - connectionMetrics.codex.liveDataStart;
-                        const ttfdTimeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
-                        console.log(`[${ttfdTimeStr}] [CODEX] LIVE DATA    | First onBarsUpdated | TTFD: ${connectionMetrics.codex.liveDataTTFD}ms`);
-                    }
+                    // TTFD calculated in onEventsCreated (faster)
 
                     // Latency: now - bar timestamp (Unix seconds)
                     const barTimeMs = bar.timestamp * 1000;
@@ -1167,7 +1182,7 @@ function startStream() {
     }
 
     console.log(`🚀 Starting GoldRush OHLCV Pairs Stream on: ${CURRENT_CHAIN}`);
-    connectionMetrics.goldrush.ringBufferStart = Date.now(); // Start timer for Ring Buffer TTFD
+    // Timer will be set when WS connects (in 'connected' callback)
 
     // Use graphql-ws for raw GraphQL subscription (NO SDK) with AUTO-RECONNECTION
     const grWsClient = createClient({
@@ -1187,6 +1202,7 @@ function startStream() {
             connected: () => {
                 console.log('✅ Connected to GoldRush OHLCV Stream!');
                 connectionMetrics.goldrush.connects++;
+                connectionMetrics.goldrush.connectTime = Date.now(); // TTFD timer starts here
             },
             error: (err) => {
                 console.error('❌ GoldRush WS Error:', err);
@@ -1243,7 +1259,7 @@ function startStream() {
                     // First message(s) with many candles = Ring Buffer (historical data)
                     if (candles.length > 1) {
                         // Still receiving ring buffer
-                        connectionMetrics.goldrush.ringBufferTTFD = Date.now() - connectionMetrics.goldrush.ringBufferStart;
+                        connectionMetrics.goldrush.ringBufferTTFD = Date.now() - connectionMetrics.goldrush.connectTime;
                         console.log(`[${timeStr}] [GOLDRUSH] RING BUFFER  | Received ${candles.length} candles | TTFD: ${connectionMetrics.goldrush.ringBufferTTFD}ms`);
                     } else {
                         // Single candle = first LIVE data after buffer (or empty buffer)
@@ -1251,11 +1267,11 @@ function startStream() {
 
                         // If we never got a large buffer, the "buffer" time is just now
                         if (connectionMetrics.goldrush.ringBufferTTFD === 0) {
-                            connectionMetrics.goldrush.ringBufferTTFD = Date.now() - connectionMetrics.goldrush.ringBufferStart;
+                            connectionMetrics.goldrush.ringBufferTTFD = Date.now() - connectionMetrics.goldrush.connectTime;
                         }
 
                         if (connectionMetrics.goldrush.liveDataTTFD === 0) {
-                            connectionMetrics.goldrush.liveDataTTFD = Date.now() - connectionMetrics.goldrush.ringBufferStart;
+                            connectionMetrics.goldrush.liveDataTTFD = Date.now() - connectionMetrics.goldrush.connectTime;
                         }
                         console.log(`[${timeStr}] [GOLDRUSH] RING BUFFER  | Skipped/Complete | TTFD: ${connectionMetrics.goldrush.ringBufferTTFD}ms`);
                         console.log(`[${timeStr}] [GOLDRUSH] LIVE DATA    | First candle | TTFD: ${connectionMetrics.goldrush.liveDataTTFD}ms`);
@@ -1327,7 +1343,7 @@ function startStream() {
 
                 // [FIX] Calculate Live Data TTFD on first tick (instead of waiting for next candle)
                 if (connectionMetrics.goldrush.liveDataTTFD === 0) {
-                    connectionMetrics.goldrush.liveDataTTFD = Date.now() - connectionMetrics.goldrush.ringBufferStart;
+                    connectionMetrics.goldrush.liveDataTTFD = Date.now() - connectionMetrics.goldrush.connectTime;
                     console.log(`[${timeStr}] [GOLDRUSH] LIVE DATA    | First tick | TTFD: ${connectionMetrics.goldrush.liveDataTTFD}ms`);
                 }
 
@@ -1466,11 +1482,13 @@ function startMobulaStream() {
             payload: {
                 address: PAIR_ADDRESS,
                 chainId: chainId,
-                period: "1m"
+                period: "1m",
+                mode: "pair",
+                subscriptionTracking: true
             }
         };
         ws.send(JSON.stringify(ohlcvMsg));
-        console.log(`📤 Mobula OHLCV Sub: Pair ${PAIR_ADDRESS} on ${chainId}`);
+        console.log(`📤 Mobula OHLCV Sub: Pair ${PAIR_ADDRESS} on ${chainId} (mode: pair)`);
 
         // Subscribe Market Details (Trades)
         const marketMsg = {
